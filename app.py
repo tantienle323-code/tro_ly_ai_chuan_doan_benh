@@ -12,13 +12,11 @@ st.write("Vui lòng tải ảnh lá lúa lên để hệ thống phân tích.")
 # 2. Nạp "bộ não" AI đã huấn luyện
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model('model_lalua.h5')
-
+   return tf.keras.models.load_model('model_lalua_v2.h5')
 model = load_model()
 
 # Khai báo đúng 6 loại bệnh theo thư mục của bạn
-CLASS_NAMES = ['Bacterial Leaf Blight', 'Brown Spot', 'Healthy Rice Leaf', 'Leaf Blast', 'Leaf scald', 'Sheath Blight']
-
+CLASS_NAMES = ['Bacterial Leaf Blight', 'Brown Spot', 'Healthy Rice Leaf', 'Khong_phai_la_lua', 'Leaf Blast', 'Leaf scald', 'Sheath Blight']
 # 3. Hàm tạo bản đồ nhiệt Grad-CAM (Giải thích AI)
 def make_gradcam_heatmap(img_array, model, last_conv_layer_name="Conv_1"):
     grad_model = tf.keras.models.Model(
@@ -58,8 +56,12 @@ if uploaded_file is not None:
     confidence = np.max(predictions[0]) * 100
 
     # In kết quả chẩn đoán
+if predicted_class == 'Khong_phai_la_lua':
+    st.error("⚠️ Hệ thống phát hiện đây không phải là lá lúa hoặc ảnh không hợp lệ. Vui lòng thử lại!")
+else:
     st.success(f"**Kết quả chẩn đoán:** Bệnh {predicted_class}")
     st.info(f"**Độ tin cậy của AI:** {confidence:.2f}%")
+    
 
     # Hiển thị Grad-CAM
     st.markdown("### 🔍 Giải thích từ AI (Grad-CAM)")

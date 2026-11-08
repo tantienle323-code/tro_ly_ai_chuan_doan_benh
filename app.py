@@ -1,81 +1,145 @@
+from pathlib import Path
+
+import cv2
+import numpy as np
 import streamlit as st
 import tensorflow as tf
-import numpy as np
-from PIL import Image
-import cv2
+from PIL import Image, ImageOps, UnidentifiedImageError
 
-# 1. Cấu hình giao diện web
-st.set_page_config(page_title="AI Chẩn Đoán Bệnh Lá Lúa", layout="centered")
-st.title("🌾 Hệ Thống AI Chẩn Đoán Bệnh Lá Lúa")
-st.write("Vui lòng tải ảnh lá lúa lên để hệ thống phân tích.")
 
-# 2. Nạp "bộ não" AI đã huấn luyện
+IMG_SIZE = 224
+MODEL_PATH = Path(__file__).resolve().with_name("model_lalua.h5")
+CLASS_NAMES = [
+    "Bacterial Leaf Blight",
+    "Brown Spot",
+    "Healthy Rice Leaf",
+    "Leaf Blast",
+    "Leaf scald",
+    "Sheath Blight",
+]
+DISPLAY_NAMES = {
+    "Bacterial Leaf Blight": "Bệnh bạc lá",
+    "Brown Spot": "Bệnh đốm nâu",
+    "Healthy Rice Leaf": "Lá lúa khỏe mạnh",
+    "Leaf Blast": "Bệnh đạo ôn",
+    "Leaf scald": "Bệnh cháy lá",
+    "Sheath Blight": "Bệnh khô vằn",
+}
+
+st.set_page_config(page_title="Nhận diện bệnh lá lúa bằng AI", layout="centered")
+st.title("Hệ thống nhận diện bệnh lá lúa")
+st.write("Tải ảnh lá lúa lên để nhận dự đoán tham khảo từ mô hình AI.")
+
+
 @st.cache_resource
 def load_model():
-   return tf.keras.models.load_model('model_lalua_v2.h5')
-model = load_model()
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    if model.input_shape != (None, IMG_SIZE, IMG_SIZE, 3):
+        raise ValueError(f"Kích thước đầu vào không đúng: {model.input_shape}")
+    if model.output_shape != (None, len(CLASS_NAMES)):
+        raise ValueError(f"Số lớp đầu ra không đúng: {model.output_shape}")
+    return model
 
-# Khai báo đúng 6 loại bệnh theo thư mục của bạn
-CLASS_NAMES = ['Bacterial Leaf Blight', 'Brown Spot', 'Healthy Rice Leaf', 'Khong_phai_la_lua', 'Leaf Blast', 'Leaf scald', 'Sheath Blight']
-# 3. Hàm tạo bản đồ nhiệt Grad-CAM (Giải thích AI)
-def make_gradcam_heatmap(img_array, model, last_conv_layer_name="Conv_1"):
+
+if not MODEL_PATH.is_file():
+    st.error(f"Không tìm thấy model: {MODEL_PATH.name}. Hãy đặt model cạnh app.py.")
+    st.stop()
+
+try:
+    model = load_model()
+except (OSError, ValueError) as exc:
+    st.error(f"Không thể nạp model {MODEL_PATH.name}: {exc}")
+    st.stop()
+
+
+def make_gradcam_heatmap(img_array, model, class_index, last_conv_layer_name="Conv_1"):
     grad_model = tf.keras.models.Model(
-        [model.inputs], [model.get_layer(last_conv_layer_name).output, model.output]
+        model.input,
+        [model.get_layer(last_conv_layer_name).output, model.output],
     )
     with tf.GradientTape() as tape:
-        last_conv_layer_output, preds = grad_model(img_array)
-        pred_index = tf.argmax(preds[0])
-        class_channel = preds[:, pred_index]
+        conv_output, predictions = grad_model(img_array)
+        class_score = predictions[:, class_index]
 
-    grads = tape.gradient(class_channel, last_conv_layer_output)
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-    last_conv_layer_output = last_conv_layer_output[0]
-    heatmap = last_conv_layer_output @ pooled_grads[..., tf.newaxis]
-    heatmap = tf.squeeze(heatmap)
-    heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+    gradients = tape.gradient(class_score, conv_output)
+    pooled_gradients = tf.reduce_mean(gradients, axis=(0, 1, 2))
+    conv_output = conv_output[0]
+    heatmap = conv_output @ pooled_gradients[..., tf.newaxis]
+    heatmap = tf.maximum(tf.squeeze(heatmap), 0)
+    heatmap = tf.math.divide_no_nan(heatmap, tf.reduce_max(heatmap))
     return heatmap.numpy()
 
-# 4. Chức năng tải ảnh lên và phân tích
-uploaded_file = st.file_uploader("Chọn một bức ảnh (JPG, PNG)...", type=["jpg", "jpeg", "png"])
+
+uploaded_file = st.file_uploader(
+    "Chọn ảnh lá lúa (JPG, JPEG hoặc PNG)",
+    type=["jpg", "jpeg", "png"],
+    max_upload_size=10,
+)
 
 if uploaded_file is not None:
-    # Mở ảnh và ép về chuẩn màu RGB (Tránh lỗi 4 kênh màu)
-    image = Image.open(uploaded_file).convert('RGB')
-    st.image(image, caption='Ảnh lá lúa tải lên', use_container_width=True)
-    st.write("🔄 Hệ thống đang phân tích...")
-
-    # Tiền xử lý ảnh
-    img = image.resize((224, 224))
-    img_array = tf.keras.preprocessing.image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = img_array / 255.0  # Chuẩn hóa pixel
-
-    # Dự đoán
-    predictions = model.predict(img_array)
-    predicted_class = CLASS_NAMES[np.argmax(predictions[0])]
-    confidence = np.max(predictions[0]) * 100
-
-    # In kết quả chẩn đoán
-if predicted_class == 'Khong_phai_la_lua':
-    st.error("⚠️ Hệ thống phát hiện đây không phải là lá lúa hoặc ảnh không hợp lệ. Vui lòng thử lại!")
-else:
-    st.success(f"**Kết quả chẩn đoán:** Bệnh {predicted_class}")
-    st.info(f"**Độ tin cậy của AI:** {confidence:.2f}%")
-    
-
-    # Hiển thị Grad-CAM
-    st.markdown("### 🔍 Giải thích từ AI (Grad-CAM)")
     try:
-        heatmap = make_gradcam_heatmap(img_array, model)
-        
-        # Chồng bản đồ nhiệt lên ảnh gốc
-        img_cv = cv2.cvtColor(np.array(image.resize((224, 224))), cv2.COLOR_RGB2BGR)
-        heatmap_resized = cv2.resize(heatmap, (img_cv.shape[1], img_cv.shape[0]))
-        heatmap_colored = np.uint8(255 * heatmap_resized)
-        heatmap_colored = cv2.applyColorMap(heatmap_colored, cv2.COLORMAP_JET)
-        superimposed_img = cv2.addWeighted(img_cv, 0.6, heatmap_colored, 0.4, 0)
-        superimposed_img = cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB)
-        
-        st.image(superimposed_img, caption="Vùng AI tập trung phân tích để đưa ra kết luận", use_container_width=True)
-    except Exception as e:
-        st.warning("Mô hình hiện tại không hỗ trợ trích xuất lớp tích chập cuối cùng để vẽ Grad-CAM.")
+        with Image.open(uploaded_file) as uploaded_image:
+            image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        Image.DecompressionBombError,
+    ) as exc:
+        st.error(f"Không thể đọc ảnh đã tải lên: {exc}")
+        st.stop()
+
+    st.image(
+        image,
+        caption="Ảnh đã tải lên",
+        width="stretch",
+        alt="Ảnh lá lúa do người dùng tải lên",
+    )
+
+    resized_image = image.resize((IMG_SIZE, IMG_SIZE))
+    img_array = np.expand_dims(
+        np.asarray(resized_image, dtype=np.float32), axis=0
+    ) / 255.0
+    predictions = model.predict(img_array, verbose=0)[0]
+
+    if predictions.shape != (len(CLASS_NAMES),) or not np.isfinite(predictions).all():
+        st.error("Model trả về kết quả không hợp lệ. Hãy kiểm tra lại file model.")
+        st.stop()
+
+    predicted_index = int(np.argmax(predictions))
+    predicted_class = CLASS_NAMES[predicted_index]
+    confidence = float(predictions[predicted_index])
+
+    st.info(
+        f"Dự đoán tham khảo: **{DISPLAY_NAMES[predicted_class]}**",
+        title="Kết quả AI",
+    )
+    st.metric("Điểm dự đoán (chưa hiệu chuẩn)", f"{confidence:.1%}")
+    st.warning(
+        "Mô hình luôn chọn một trong 6 nhãn đã học, kể cả khi ảnh không phải lá lúa. "
+        "Kết quả chỉ mang tính tham khảo; hãy kiểm tra thực tế trước khi xử lý cây trồng."
+    )
+
+    st.subheader("Vùng ảnh mô hình tập trung (Grad-CAM)")
+    try:
+        heatmap = make_gradcam_heatmap(img_array, model, predicted_index)
+    except (KeyError, ValueError, TypeError, tf.errors.InvalidArgumentError) as exc:
+        st.warning(f"Không thể tạo Grad-CAM: {type(exc).__name__}: {exc}")
+    else:
+        if not np.isfinite(heatmap).all() or not np.any(heatmap):
+            st.warning("Mô hình không tạo được bản đồ nhiệt có ý nghĩa cho ảnh này.")
+        else:
+            image_array = np.asarray(resized_image)
+            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+            heatmap = cv2.resize(heatmap, (IMG_SIZE, IMG_SIZE))
+            heatmap_colored = cv2.applyColorMap(
+                np.uint8(255 * heatmap), cv2.COLORMAP_JET
+            )
+            overlay = cv2.addWeighted(image_bgr, 0.6, heatmap_colored, 0.4, 0)
+            overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
+            st.image(
+                overlay,
+                caption="Vùng mô hình tập trung khi đưa ra dự đoán",
+                width="stretch",
+                alt="Bản đồ nhiệt Grad-CAM phủ trên ảnh lá lúa",
+            )

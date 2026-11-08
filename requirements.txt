@@ -1,0 +1,7 @@
+# Use Python 3.12; TensorFlow does not provide wheels for every Python version.
+streamlit==1.66.1
+tensorflow==2.20.0
+numpy>=1.26,<2.2
+protobuf>=5.28.3,<7
+opencv-python-headless>=4.10,<5
+Pillow>=10,<14

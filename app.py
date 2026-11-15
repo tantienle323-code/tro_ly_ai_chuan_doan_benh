@@ -1,5 +1,9 @@
 from pathlib import Path
+import os
 
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
 import cv2
 import numpy as np
 import streamlit as st
@@ -24,73 +28,6 @@ DISPLAY_NAMES = {
     "Leaf Blast": "Bệnh đạo ôn",
     "Leaf scald": "Bệnh cháy lá",
     "Sheath Blight": "Bệnh khô vằn",
-}
-
-DISEASE_INFO = {
-    "Bacterial Leaf Blight": {
-        "symptoms": "Vết úa vàng hoặc xám trắng chạy dọc mép lá, lan dần vào trong; sáng sớm có thể thấy giọt dịch vi khuẩn màu vàng đục.",
-        "cause": "Vi khuẩn Xanthomonas oryzae, lây qua nước, vết thương trên lá, hạt giống và tàn dư rơm rạ.",
-        "prevention": [
-            "Dùng giống kháng bệnh, hạt giống sạch bệnh.",
-            "Không bón thừa đạm, chia nhỏ lượng đạm bón.",
-            "Vệ sinh đồng ruộng, xử lý rơm rạ và cỏ dại sau thu hoạch.",
-            "Hạn chế để nước tràn từ ruộng bệnh sang ruộng khỏe.",
-        ],
-        "treatment": "Khi bệnh mới xuất hiện, ngưng bón đạm và giữ ruộng thoáng. Có thể dùng thuốc nhóm gốc đồng hoặc kháng sinh nông nghiệp đã đăng ký, theo hướng dẫn của cán bộ bảo vệ thực vật.",
-    },
-    "Brown Spot": {
-        "symptoms": "Đốm nâu hình bầu dục hoặc tròn, tâm xám nhạt, viền nâu sẫm, rải rác trên lá; nặng thì lá khô, hạt lép.",
-        "cause": "Nấm Bipolaris oryzae, thường gặp khi ruộng thiếu dinh dưỡng (nhất là kali), đất nghèo hoặc khô hạn.",
-        "prevention": [
-            "Bón phân cân đối N-P-K, chú ý bổ sung kali và silic.",
-            "Xử lý hạt giống trước khi gieo.",
-            "Cải tạo đất, đảm bảo đủ nước, tránh để cây bị stress.",
-            "Dọn tàn dư cây bệnh sau vụ.",
-        ],
-        "treatment": "Bổ sung dinh dưỡng trước tiên. Nếu bệnh nặng, có thể dùng thuốc trừ nấm đã đăng ký cho lúa (ví dụ nhóm triazole, strobilurin), theo hướng dẫn trên nhãn thuốc.",
-    },
-    "Healthy Rice Leaf": {
-        "symptoms": "Lá xanh đều, không có vết bệnh rõ rệt.",
-        "cause": "Không phát hiện dấu hiệu bệnh trong ảnh này.",
-        "prevention": [
-            "Thăm đồng thường xuyên, theo dõi sớm các vết lạ trên lá.",
-            "Bón phân cân đối, quản lý nước hợp lý.",
-            "Giữ ruộng sạch cỏ và tàn dư.",
-        ],
-        "treatment": "Không cần xử lý. Nên chụp thêm vài lá ở nhiều vị trí khác nhau để chắc chắn.",
-    },
-    "Leaf Blast": {
-        "symptoms": "Vết hình thoi (mắt én), tâm xám trắng, viền nâu; nhiều vết liên kết làm cháy cả lá.",
-        "cause": "Nấm Magnaporthe oryzae, phát triển mạnh khi ẩm độ cao, sương mù, đêm lạnh, bón thừa đạm.",
-        "prevention": [
-            "Dùng giống kháng đạo ôn.",
-            "Không bón đạm muộn hoặc quá nhiều.",
-            "Sạ cấy mật độ vừa phải để ruộng thoáng.",
-            "Theo dõi ruộng kỹ khi thời tiết âm u, sương mù kéo dài.",
-        ],
-        "treatment": "Phun sớm khi vết bệnh mới xuất hiện. Có thể dùng thuốc đặc trị đạo ôn đã đăng ký (ví dụ tricyclazole, isoprothiolane), theo đúng hướng dẫn và thời gian cách ly.",
-    },
-    "Leaf scald": {
-        "symptoms": "Vết cháy lan từ chóp hoặc mép lá vào trong, có vằn đồng tâm màu nâu và vàng, rìa vết thường loang lổ.",
-        "cause": "Nấm Microdochium oryzae, thuận lợi khi ruộng ẩm, bón nhiều đạm, mật độ dày.",
-        "prevention": [
-            "Sạ cấy mật độ hợp lý, giữ ruộng thoáng.",
-            "Bón đạm vừa phải, tăng kali.",
-            "Vệ sinh ruộng, xử lý tàn dư sau thu hoạch.",
-        ],
-        "treatment": "Giảm đạm, giữ nước hợp lý. Nếu bệnh lan rộng, hãy hỏi cán bộ bảo vệ thực vật địa phương để chọn thuốc trừ nấm phù hợp.",
-    },
-    "Sheath Blight": {
-        "symptoms": "Vết loang vằn như da hổ ở bẹ lá sát mặt nước, màu xám lục đến nâu, lan lên các lá phía trên.",
-        "cause": "Nấm Rhizoctonia solani, tồn tại trong đất và tàn dư, phát triển mạnh khi sạ dày, ẩm độ cao, bón nhiều đạm.",
-        "prevention": [
-            "Sạ cấy thưa vừa phải, không để lúa quá rậm.",
-            "Bón đạm cân đối, tránh bón dồn một lần.",
-            "Dọn sạch rơm rạ, cỏ bờ và hạch nấm nổi trên mặt nước.",
-            "Tháo cạn nước hợp lý giữa vụ để giảm ẩm độ gốc.",
-        ],
-        "treatment": "Có thể dùng thuốc nhóm validamycin hoặc triazole đã đăng ký, phun tập trung vào phần gốc, bẹ lá, theo hướng dẫn trên nhãn.",
-    },
 }
 
 SEVERITY_NOTE = "Con số này chỉ là ước lượng dựa trên màu sắc, không thay thế đánh giá ngoài đồng."
@@ -138,6 +75,7 @@ def make_gradcam_heatmap(img_array, model, class_index, last_conv_layer_name="Co
     heatmap = tf.math.divide_no_nan(heatmap, tf.reduce_max(heatmap))
     return heatmap.numpy()
 
+
 def estimate_severity(rgb_image):
     """Ước lượng % diện tích lá bị bệnh bằng ngưỡng màu HSV (heuristic)."""
     rgb = np.asarray(rgb_image).copy()
@@ -170,6 +108,7 @@ def estimate_severity(rgb_image):
     red = np.array([255, 0, 0], dtype=np.float32)
     overlay[lesion] = (0.5 * overlay[lesion] + 0.5 * red).astype(np.uint8)
     return percent, level, overlay
+
 
 uploaded_file = st.file_uploader(
     "Chọn ảnh lá lúa (JPG, JPEG hoặc PNG)",
@@ -211,6 +150,13 @@ if uploaded_file is not None:
     predicted_index = int(top3_idx[0])
     predicted_class = CLASS_NAMES[predicted_index]
     confidence = float(predictions[predicted_index])
+    st.session_state["last_diagnosis"] = {
+        "disease": DISPLAY_NAMES[predicted_class],
+        "confidence": confidence,
+        "top3": [
+            (DISPLAY_NAMES[CLASS_NAMES[i]], float(predictions[i])) for i in top3_idx
+        ],
+    }
 
     st.info(
         f"Dự đoán tham khảo: **{DISPLAY_NAMES[predicted_class]}**",
@@ -252,19 +198,6 @@ if uploaded_file is not None:
             )
             st.caption(SEVERITY_NOTE)
 
-    info = DISEASE_INFO[predicted_class]
-    st.subheader(f"Gợi ý phòng và trị: {DISPLAY_NAMES[predicted_class]}")
-    st.markdown(f"**Triệu chứng:** {info['symptoms']}")
-    st.markdown(f"**Nguyên nhân:** {info['cause']}")
-    st.markdown("**Biện pháp phòng bệnh:**")
-    for item in info["prevention"]:
-        st.markdown(f"- {item}")
-    st.markdown(f"**Hướng xử lý:** {info['treatment']}")
-    st.caption(
-        "Thông tin mang tính tham khảo chung, không nêu liều lượng. "
-        "Hãy đọc kỹ nhãn thuốc và hỏi cán bộ khuyến nông hoặc bảo vệ thực vật địa phương trước khi phun."
-    )
-
     st.subheader("Vùng ảnh mô hình tập trung (Grad-CAM)")
     try:
         heatmap = make_gradcam_heatmap(img_array, model, predicted_index)
@@ -288,3 +221,158 @@ if uploaded_file is not None:
                 width="stretch",
                 alt="Bản đồ nhiệt Grad-CAM phủ trên ảnh lá lúa",
             )
+
+
+# ====================== CHATBOT HỎI ĐÁP BỆNH LÚA (GEMINI) ======================
+CHAT_MODEL = "gemini-3.5-flash"
+MAX_HISTORY = 10
+
+BASE_SYSTEM_PROMPT = """Bạn là trợ lý tư vấn bệnh trên cây lúa, trả lời bằng tiếng Việt, dễ hiểu cho nông dân.
+Quy tắc:
+- Chỉ trả lời về lúa: bệnh, sâu hại, dinh dưỡng, canh tác, phòng trừ. Câu hỏi ngoài chủ đề thì lịch sự từ chối và mời hỏi về lúa.
+- Không đưa liều lượng, nồng độ hay lịch phun thuốc cụ thể. Có thể nêu nhóm hoạt chất phổ biến, rồi nhắc đọc nhãn thuốc và hỏi cán bộ khuyến nông hoặc bảo vệ thực vật địa phương.
+- Ưu tiên biện pháp canh tác và phòng bệnh trước khi dùng thuốc.
+- Nếu không chắc chắn, hãy nói rõ là không chắc, không bịa thông tin.
+- Kết quả chẩn đoán bằng AI chỉ là tham khảo, có thể sai; khuyên người dùng kiểm tra thực tế ngoài ruộng khi cần.
+Cách trình bày:
+- Trả lời gọn, tối đa khoảng 400 từ, đi thẳng vào ý chính.
+- Không dùng tiêu đề lớn (#, ##). Chỉ dùng gạch đầu dòng ngắn và chữ in đậm cho ý quan trọng.
+- Luôn kết thúc bằng một câu nhắc hỏi cán bộ khuyến nông địa phương khi cần dùng thuốc.
+- Nếu người dùng muốn chi tiết hơn, họ sẽ hỏi thêm."""
+
+
+def get_api_key():
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        return os.environ.get("GEMINI_API_KEY")
+
+
+def build_system_prompt():
+    prompt = BASE_SYSTEM_PROMPT
+    diagnosis = st.session_state.get("last_diagnosis")
+    if diagnosis:
+        top3_text = ", ".join(f"{name} ({prob:.0%})" for name, prob in diagnosis["top3"])
+        prompt += (
+            "\n\nNgữ cảnh: người dùng vừa tải lên một ảnh lá lúa. "
+            f"Mô hình AI dự đoán: {diagnosis['disease']} (độ tin cậy {diagnosis['confidence']:.0%}). "
+            f"Top 3 dự đoán: {top3_text}. Đây chỉ là dự đoán tham khảo."
+        )
+    return prompt
+
+
+def to_gemini_contents(messages):
+    messages = list(messages)
+    while messages and messages[0]["role"] != "user":
+        messages.pop(0)  # lịch sử phải bắt đầu bằng tin nhắn người dùng
+    return [
+        types.Content(
+            role="user" if m["role"] == "user" else "model",
+            parts=[types.Part(text=m["content"])],
+        )
+        for m in messages
+    ]
+
+
+def stream_gemini_reply(client, contents):
+    stream = client.models.generate_content_stream(
+        model=CHAT_MODEL,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=build_system_prompt(),
+            max_output_tokens=3000,
+        ),
+    )
+    for chunk in stream:
+        if chunk.text:
+            st.session_state["partial_reply"] += chunk.text
+            yield chunk.text
+
+
+st.divider()
+st.subheader("Hỏi đáp về bệnh lúa")
+
+api_key = get_api_key()
+if not api_key:
+    st.info(
+        "Chưa cấu hình GEMINI_API_KEY nên chatbot đang tắt. "
+        "Hãy thêm key vào .streamlit/secrets.toml rồi chạy lại app."
+    )
+else:
+    ss = st.session_state
+    ss.setdefault("chat_messages", [])
+    ss.setdefault("phase", "idle")  # idle | queued | running
+    ss.setdefault("partial_reply", "")
+    ss.setdefault("q_input", "")
+
+    if ss["phase"] == "running":
+        partial = ss["partial_reply"].strip()
+        stopped_note = "*(đã dừng trả lời)*"
+        ss["chat_messages"].append(
+            {
+                "role": "assistant",
+                "content": f"{partial}\n\n{stopped_note}" if partial else stopped_note,
+            }
+        )
+        ss["phase"] = "idle"
+        ss["partial_reply"] = ""
+
+    def submit_question():
+        text = ss["q_input"].strip()
+        if text and ss["phase"] == "idle":
+            ss["chat_messages"].append({"role": "user", "content": text})
+            ss["phase"] = "queued"
+            ss["q_input"] = ""
+
+    busy = ss["phase"] != "idle"
+
+    chat_area = st.container()
+    with chat_area:
+        for message in ss["chat_messages"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    col_input, col_send, col_stop = st.columns([6, 1.3, 1.8], vertical_alignment="bottom")
+    col_input.text_input(
+        "Câu hỏi",
+        key="q_input",
+        placeholder="Hỏi về bệnh lúa, cách phòng trị, chăm sóc...",
+        label_visibility="collapsed",
+        disabled=busy,
+        on_change=submit_question,
+    )
+    col_send.button("Gửi", key="send_btn", on_click=submit_question, disabled=busy, width="stretch")
+    col_stop.button("⏹ Dừng", key="stop_btn", disabled=not busy, type="primary", width="stretch")  # chữ trên nút
+
+    if ss["chat_messages"] and st.button("Xóa cuộc trò chuyện", disabled=busy):
+        ss["chat_messages"] = []
+        st.rerun()
+
+    if ss["phase"] == "queued":
+        ss["phase"] = "running"
+        ss["partial_reply"] = ""
+        history = ss["chat_messages"][-MAX_HISTORY:]
+
+        with chat_area:
+            with st.chat_message("assistant"):
+                try:
+                    client = genai.Client(api_key=api_key)
+                    reply = st.write_stream(
+                        stream_gemini_reply(client, to_gemini_contents(history))
+                    )
+                    if not reply:
+                        reply = "Chatbot không trả lời được câu này, bạn thử diễn đạt lại nhé."
+                        st.warning(reply)
+                except genai_errors.APIError as exc:
+                    if exc.code in (400, 401, 403):
+                        reply = "API key không hợp lệ hoặc chưa được cấp quyền. Hãy kiểm tra lại secrets.toml."
+                    elif exc.code == 429:
+                        reply = "Đang gửi quá nhiều yêu cầu hoặc hết hạn mức miễn phí, hãy thử lại sau ít phút."
+                    else:
+                        reply = f"Không kết nối được chatbot (mã lỗi {exc.code}). Hãy thử lại sau."
+                    st.error(reply)
+
+        ss["chat_messages"].append({"role": "assistant", "content": reply})
+        ss["phase"] = "idle"
+        ss["partial_reply"] = ""
+        st.rerun()

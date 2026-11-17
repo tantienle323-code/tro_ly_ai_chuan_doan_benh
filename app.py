@@ -1,15 +1,14 @@
 from pathlib import Path
+import os
 
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
 import cv2
 import numpy as np
 import streamlit as st
 import tensorflow as tf
 from PIL import Image, ImageOps, UnidentifiedImageError
-from tensorflow.keras.applications.mobilenet_v2 import (
-    MobileNetV2,
-    decode_predictions,
-    preprocess_input as mobilenet_preprocess,
-)
 
 
 IMG_SIZE = 224
@@ -31,156 +30,11 @@ DISPLAY_NAMES = {
     "Sheath Blight": "Bệnh khô vằn",
 }
 
-RICE_MARKET_PRICES = {
-    "Lúa OM 5451 (8.100 đ/kg)": 8100,
-    "Lúa Đài Thơm 8 (8.400 đ/kg)": 8400,
-    "Lúa ST24 / ST25 (9.500 đ/kg)": 9500,
-    "Lúa IR 50404 (7.600 đ/kg)": 7600,
-    "Tự nhập giá lúa tại địa phương": 8000,
-}
+SEVERITY_NOTE = "Con số này chỉ là ước lượng dựa trên màu sắc, không thay thế đánh giá ngoài đồng."
 
-# Các từ khóa vật thể lạ (chai thuốc, bao bì, đồ vật, động vật, người...) nếu Gatekeeper phát hiện
-NON_PLANT_KEYWORDS = {
-    "bottle", "pill_bottle", "water_bottle", "pop_bottle", "beer_bottle", "wine_bottle",
-    "packet", "carton", "box", "can", "tin", "jar", "jug", "cup", "mug", "spray",
-    "lotion", "sunscreen", "shampoo", "soap", "perfume", "medicine", "syringe",
-    "phone", "cellular_telephone", "laptop", "computer", "keyboard", "mouse", "screen",
-    "book", "paper", "envelope", "menu", "comic_book", "web_site",
-    "person", "man", "woman", "hand", "finger", "face", "shoe", "shirt",
-    "car", "bicycle", "motorcycle", "dog", "cat", "bird", "fish", "toy", "ball",
-}
-
-# Các loài thực vật/hoa quả khác không phải lá lúa
-OTHER_PLANT_KEYWORDS = {
-    "daisy", "rose", "sunflower", "tulip", "orchid", "lotus", "hibiscus",
-    "banana", "pineapple", "orange", "lemon", "apple", "strawberry", "mango",
-    "cabbage", "broccoli", "cauliflower", "cucumber", "pumpkin", "mushroom",
-    "cactus", "pine", "oak", "maple", "fern", "moss",
-}
-
-DISEASE_ADVISORY_DB = {
-    "Bacterial Leaf Blight": {
-        "tac_nhan": "Vi khuẩn Xanthomonas oryzae (không phải nấm, dùng thuốc trừ nấm sẽ không khỏi)",
-        "ty_le_mat_min": 0.15,
-        "ty_le_mat_max": 0.25,
-        "thuoc_dac_tri": {
-            "Totan 200WP (Bronopol) - Phổ thông": 850000,
-            "Starner 20WP (Oxolinic acid) - Đặc trị cao cấp": 1150000,
-            "Kamsu 2SL (Kasugamycin) - Sinh học an toàn": 950000,
-        },
-        "thoi_tiet_thuan_loi": ["Mưa nhiều / Ẩm độ cao", "Nắng nóng xen kẽ mưa giông"],
-        "co_che_lay_lan": (
-            "Vi khuẩn tiết dịch nhờn trên mép lá vào sáng sớm; khi có gió mạnh, mưa giông hoặc lá cọ xát vào nhau, "
-            "vi khuẩn xâm nhập qua vết thương cơ giới và lỗ khí khổng, lây lan cực nhanh theo hướng gió và dòng nước tưới."
-        ),
-        "dau_hieu_kiem_tra": "Ra ruộng vào sáng sớm lúc còn sương, soi mặt dưới mép lá bị vàng xem có giọt dịch vi khuẩn nhỏ màu vàng đục như keo hay không.",
-        "quan_ly_canh_tac": (
-            "1. Rút bớt nước trong ruộng (chỉ giữ ẩm mặt đất) để cắt đường lây lan của vi khuẩn qua nước.\n"
-            "2. **Ngưng bón phân đạm (Urê) và tuyệt đối không phun phân bón lá, thuốc kích thích sinh trưởng** (càng phun lá càng non mềm, bệnh bùng càng mạnh)."
-        ),
-        "ky_thuat_phun": (
-            "Phun khi lá lúa đã ráo sương (khoảng 8h–10h sáng hoặc 15h30–17h chiều). "
-            "Không lội ruộng phun khi lá còn ướt sương vì người đi tới đâu sẽ làm vi khuẩn lây lan theo tới đó. "
-            "Nếu ruộng đang bị nặng, phun lặp lại lần 2 sau 5–7 ngày và bổ sung thêm Kali trắng giúp cứng lá."
-        ),
-    },
-    "Brown Spot": {
-        "tac_nhan": "Nấm Bipolaris oryzae (thường xuất hiện khi ruộng thiếu dinh dưỡng, phèn hoặc khô hạn)",
-        "ty_le_mat_min": 0.10,
-        "ty_le_mat_max": 0.18,
-        "thuoc_dac_tri": {
-            "Tilt Super 300EC (Propiconazole + Difenoconazole)": 920000,
-            "Dithane M-45 80WP (Mancozeb) - Tiết kiệm": 750000,
-            "Amistar Top 325SC (Azoxystrobin) - Dưỡng lá xanh": 1100000,
-        },
-        "thoi_tiet_thuan_loi": ["Nắng nóng xen kẽ mưa giông", "Khô hạn / Thiếu dinh dưỡng"],
-        "co_che_lay_lan": (
-            "Bào tử nấm phát tán nhờ gió từ các lá già phía dưới lên các lá non phía trên. "
-            "Nếu ruộng bị thiếu nước hoặc đất phèn/nghèo Kali, cây suy yếu khiến vết đốm nâu nối liền nhau làm khô cháy cả lá."
-        ),
-        "dau_hieu_kiem_tra": "Kiểm tra các lá già tầng dưới xem có đốm tròn/bầu dục màu nâu sẫm giống hạt mè, xung quanh có quầng vàng nhạt hay không.",
-        "quan_ly_canh_tac": (
-            "1. Kiểm tra mực nước ruộng: không để ruộng bị khô nứt nẻ; nếu đất nhiễm phèn cần thay nước mới.\n"
-            "2. Bón bổ sung phân **Kali và Silic** (hoặc phân NPK cân đối) để tăng độ dày vách tế bào lá, giúp cây tự kháng nấm."
-        ),
-        "ky_thuat_phun": (
-            "Phun ướt đều cả mặt trên và mặt dưới tán lá. Có thể pha chung thuốc trừ nấm với phân bón lá chứa Silic hoặc Kali hữu cơ "
-            "để vừa diệt nấm vừa phục hồi màu xanh cho bộ lá đòng."
-        ),
-    },
-    "Leaf Blast": {
-        "tac_nhan": "Nấm Pyricularia oryzae (bệnh nguy hiểm nhất trên lúa, có thể gây cháy rụi từng chòm)",
-        "ty_le_mat_min": 0.15,
-        "ty_le_mat_max": 0.30,
-        "thuoc_dac_tri": {
-            "Beam 75WP (Tricyclazole) - Đặc trị đạo ôn": 1150000,
-            "Fuji-One 40EC (Isoprothiolane) - Hiệu quả nhanh": 1050000,
-            "Filia 525SE (Tricyclazole + Propiconazole) - Cao cấp": 1350000,
-        },
-        "thoi_tiet_thuan_loi": ["Mưa nhiều / Ẩm độ cao", "Trời âm u / Sương mù nhiều"],
-        "co_che_lay_lan": (
-            "Ban đêm trời mát (20–26°C) kèm sương mù dày hoặc mưa phùn là điều kiện lý tưởng để nấm sinh bào tử ồ ạt. "
-            "Chỉ sau 3–4 ngày, các vết bệnh hình mắt én nhỏ sẽ liên kết lại làm cháy khô cả chòm lúa ('sụp mặt') và dễ lây lên cổ bông về sau."
-        ),
-        "dau_hieu_kiem_tra": "Vạch các khóm lúa xanh tốt (đặc biệt chỗ rậm rạp, thừa đạm hoặc ven bờ) tìm vết chấm kim màu xám xanh hoặc vết hình thoi (mắt én) tâm xám viền nâu.",
-        "quan_ly_canh_tac": (
-            "1. **Giữ mực nước trong ruộng ổn định (3–5 cm)** — tuyệt đối không tháo cạn nước vì ruộng khô làm đạo ôn bùng phát dữ dội hơn.\n"
-            "2. **Ngưng ngay phân đạm (Urê) và phân bón lá** cho đến khi vết bệnh khô hẳn (tâm vết bệnh chuyển sang màu xám trắng khô ráo)."
-        ),
-        "ky_thuat_phun": (
-            "Phun thuốc ngay khi phát hiện vết chấm kim hoặc vết mắt én đầu tiên; phun kỹ vào các chòm lúa xanh đậm, rậm rạp. "
-            "Nếu ruộng đã chớm cháy chòm, bắt buộc **phun kép 2 lần cách nhau 5–7 ngày** (nên đổi hoạt chất ở lần 2 để tránh kháng thuốc)."
-        ),
-    },
-    "Leaf scald": {
-        "tac_nhan": "Nấm Microdochium oryzae (thường xuất hiện từ giai đoạn làm đòng đến trỗ)",
-        "ty_le_mat_min": 0.10,
-        "ty_le_mat_max": 0.20,
-        "thuoc_dac_tri": {
-            "Carbenzim 500FL (Carbendazim) - Phổ thông": 780000,
-            "Amistar Top 325SC (Azoxystrobin) - Đặc trị": 1100000,
-            "Nativo 750WG (Tebuconazole + Trifloxystrobin)": 1250000,
-        },
-        "thoi_tiet_thuan_loi": ["Mưa nhiều / Ẩm độ cao", "Trời âm u / Sương mù nhiều"],
-        "co_che_lay_lan": (
-            "Nấm tấn công từ chóp lá và mép lá rồi lan dần xuống dưới tạo thành các vân gợn sóng màu nâu xám. "
-            "Mưa gió làm các lá cọ xát và bào tử nấm theo nước mưa lan sang các khóm bên cạnh, làm giảm diện tích quang hợp nuôi hạt."
-        ),
-        "dau_hieu_kiem_tra": "Quan sát chóp các lá tầng giữa và lá đòng xem có vết cháy khô màu nâu nhạt, có các đường vân ngang như hình bậc thang/gợn sóng hay không.",
-        "quan_ly_canh_tac": (
-            "1. Giữ mực nước ruộng vừa phải, tránh để ruộng ngập quá sâu hoặc khô hạn kéo dài.\n"
-            "2. Hạn chế bón thừa đạm vào đợt đón đòng; tăng cường Kali để giữ bộ lá đòng xanh bền đến lúc thu hoạch."
-        ),
-        "ky_thuat_phun": (
-            "Phun phủ đều tầng lá trên của ruộng lúa vào sáng sớm hoặc chiều mát. "
-            "Nếu lúa đang chuẩn bị trỗ, việc phun thuốc nhóm Strobilurin (như Azoxystrobin, Trifloxystrobin) sẽ vừa chặn bệnh vừa giúp xanh lá đòng, sáng hạt."
-        ),
-    },
-    "Sheath Blight": {
-        "tac_nhan": "Nấm Rhizoctonia solani (tồn tại sẵn trong đất/rơm rạ dưới dạng hạch nấm)",
-        "ty_le_mat_min": 0.12,
-        "ty_le_mat_max": 0.25,
-        "thuoc_dac_tri": {
-            "Validacin 5SL (Validamycin) - Tiết kiệm hiệu quả": 820000,
-            "Anvil 5SC (Hexaconazole) - Chặn đứng vết bệnh": 980000,
-            "Nevo 330EC (Propiconazole + Difenoconazole)": 1180000,
-        },
-        "thoi_tiet_thuan_loi": ["Mưa nhiều / Ẩm độ cao", "Nắng nóng xen kẽ mưa giông"],
-        "co_che_lay_lan": (
-            "Hạch nấm nổi trên mặt nước bám vào bẹ lúa sát gốc rồi bò dần lên trên theo chiều cao cây. "
-            "Ruộng sạ dày, bón thừa đạm, tán lá rậm rạp nóng ẩm khiến nấm leo thẳng lên lá đòng chỉ trong 4–5 ngày, làm lúa lép lửng và đổ ngã."
-        ),
-        "dau_hieu_kiem_tra": "Vạch sát gốc lúa gần mặt nước xem bẹ lá có các vết đốm loang lổ hình bầu dục màu xám xanh như vết vằn da hổ và có hạt hạch nấm nhỏ màu nâu bám vào không.",
-        "quan_ly_canh_tac": (
-            "1. **Tháo cạn nước ruộng phơi mặt đất 3–5 ngày** để gốc lúa khô ráo, thông thoáng — đây là cách cắt đứt đường leo của nấm hiệu quả nhất.\n"
-            "2. Ngưng bón đạm; nếu ruộng quá rậm có thể tỉa bớt lá chân ở bờ."
-        ),
-        "ky_thuat_phun": (
-            "**Lưu ý quan trọng khi phun:** Không phun lướt trên ngọn lá! Phải chỉnh béc phun sương mịn và **hướng vòi phun xuống thấp vào vùng gốc và bẹ lúa** "
-            "(tăng lượng nước phun để thuốc chảy dọc theo bẹ xuống sát gốc). Nếu bệnh đã leo qua nửa thân cây, cần phun nhắc lại sau 7 ngày."
-        ),
-    },
-}
+st.set_page_config(page_title="Nhận diện bệnh lá lúa bằng AI", layout="centered")
+st.title("Hệ thống nhận diện bệnh lá lúa")
+st.write("Tải ảnh lá lúa lên để nhận dự đoán tham khảo từ mô hình AI.")
 
 
 @st.cache_resource
@@ -193,271 +47,14 @@ def load_model():
     return model
 
 
-@st.cache_resource
-def load_gatekeeper_model():
-    """Tải mô hình MobileNetV2 (ImageNet) để phát hiện chai thuốc, vật dụng, con người, cây khác."""
-    return MobileNetV2(weights="imagenet")
-
-
-def kiem_tra_la_lua_nghiem_ngat(pil_image: Image.Image, gatekeeper_model):
-    """
-    Hệ thống lọc 3 lớp để chỉ chấp nhận ảnh LÁ LÚA:
-    - Lớp 1: Dùng MobileNetV2 phát hiện vật thể lạ (chai thuốc, bao bì, đồ vật, con người, hoa quả...).
-    - Lớp 2: Kiểm tra sắc tố thực vật đặc trưng của lá lúa trong không gian màu HSV.
-    - Lớp 3: Kiểm tra cấu trúc biên cạnh & độ thẳng gân lá song song (đặc trưng cây họ lúa).
-    """
-    resized = pil_image.resize((224, 224))
-    img_rgb = np.asarray(resized, dtype=np.float32)
-
-    # --- LỚP 1: Gatekeeper phát hiện đồ vật / chai thuốc / sinh vật khác ---
-    gk_input = mobilenet_preprocess(np.expand_dims(img_rgb.copy(), axis=0))
-    gk_preds = gatekeeper_model.predict(gk_input, verbose=0)
-    top_objects = decode_predictions(gk_preds, top=5)[0]
-
-    for _, label, prob in top_objects:
-        label_lower = label.lower()
-        # Nếu mô hình tổng quát nhận ra chai thuốc, đồ vật, người... với xác suất > 12% -> chặn ngay
-        if prob > 0.12 and any(kw in label_lower for kw in NON_PLANT_KEYWORDS):
-            return (
-                False,
-                f"Không nhận dạng được do đây không phải lá lúa (hệ thống phát hiện vật thể giống **{label}**). "
-                "Vui lòng chỉ tải lên ảnh chụp lá lúa.",
-            )
-        # Nếu nhận ra hoa, trái cây hoặc rau củ khác với xác suất > 20% -> chặn ngay
-        if prob > 0.20 and any(kw in label_lower for kw in OTHER_PLANT_KEYWORDS):
-            return (
-                False,
-                f"Không nhận dạng được do đây là loại cây/hoa quả khác (**{label}**), không phải lá lúa.",
-            )
-
-    # --- LỚP 2: Kiểm tra phân bố màu sắc đặc trưng của lá lúa ---
-    img_uint8 = np.asarray(resized, dtype=np.uint8)
-    img_hsv = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2HSV)
-
-    # Màu xanh diệp lục của lá lúa (Hue: 26 - 92)
-    mask_green = cv2.inRange(img_hsv, np.array([26, 35, 25]), np.array([92, 255, 255]))
-    # Màu vàng úa / nâu cháy của lá lúa bệnh (Hue: 10 - 26)
-    mask_yellow_brown = cv2.inRange(img_hsv, np.array([10, 40, 35]), np.array([26, 255, 255]))
-    # Màu trắng xóa / xám nền studio (thường gặp ở ảnh chụp chai thuốc trên nền trắng)
-    mask_white_bg = cv2.inRange(img_hsv, np.array([0, 0, 210]), np.array([180, 35, 255]))
-
-    ty_le_xanh = np.count_nonzero(mask_green) / mask_green.size
-    ty_le_vang_nau = np.count_nonzero(mask_yellow_brown) / mask_yellow_brown.size
-    ty_le_nen_trang = np.count_nonzero(mask_white_bg) / mask_white_bg.size
-
-    if ty_le_nen_trang > 0.45 and ty_le_xanh < 0.25:
-        return (
-            False,
-            "Không nhận dạng được do đây không phải lá lúa (ảnh có quá nhiều nền trắng giống ảnh sản phẩm/chai thuốc).",
-        )
-
-    if ty_le_xanh < 0.14 or (ty_le_xanh + ty_le_vang_nau) < 0.28:
-        return (
-            False,
-            "Không nhận dạng được do đây không phải lá lúa (không tìm thấy đặc trưng màu sắc của lá lúa).",
-        )
-
-    # --- LỚP 3: Phân tích độ định hướng cấu trúc gân lá song song (Gradient Orientation) ---
-    # Lá lúa thon dài, các mép lá và gân lá chạy song song theo một hướng ưu thế rõ rệt,
-    # khác với lá cây thân gỗ bản rộng (gân tỏa tròn đa hướng) hoặc chữ in trên nhãn chai.
-    gray = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2GRAY)
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    magnitude = np.hypot(sobelx, sobely)
-    angle = np.rad2deg(np.arctan2(sobely, sobelx)) % 180  # 0 - 180 độ
-
-    # Chỉ xét các pixel thuộc vùng lá cây có biên cạnh rõ
-    leaf_mask = cv2.bitwise_or(mask_green, mask_yellow_brown) > 0
-    strong_edges = (magnitude > np.percentile(magnitude, 70)) & leaf_mask
-
-    if np.count_nonzero(strong_edges) < 150:
-        return (
-            False,
-            "Không nhận dạng được do ảnh mờ hoặc không thấy rõ phiến lá lúa.",
-        )
-
-    hist, _ = np.histogram(angle[strong_edges], bins=18, range=(0, 180), weights=magnitude[strong_edges])
-    hist_norm = hist / (np.sum(hist) + 1e-8)
-    # Tỷ lệ tập trung của 3 hướng góc liên tiếp lớn nhất (độ song song của lá lúa)
-    padded_hist = np.concatenate([hist_norm, hist_norm[:2]])
-    max_directional_ratio = max(np.sum(padded_hist[i : i + 3]) for i in range(18))
-
-    # Nếu các đường biên phân tán lộn xộn đa hướng (< 0.26) -> lá cây bản rộng khác hoặc chữ trên bao bì
-    if max_directional_ratio < 0.26:
-        return (
-            False,
-            "Không nhận dạng được do hình dáng/gân lá không phải lá lúa (có thể là lá cây khác hoặc vật thể lạ).",
-        )
-
-    return True, "Hợp lệ"
-
-
-def phan_tich_kinh_te_va_lay_lan(
-    predicted_class: str,
-    thoi_tiet: str,
-    giai_doan_lua: str,
-    dien_tich_ha: float,
-    gia_lua_kg: int,
-    don_gia_thuoc_ha: int,
-    nang_suat_tan_ha: float = 6.5,
-):
-    if predicted_class == "Healthy Rice Leaf" or predicted_class not in DISEASE_ADVISORY_DB:
-        return None
-
-    info = DISEASE_ADVISORY_DB[predicted_class]
-    tong_gia_tri_1ha = nang_suat_tan_ha * 1000 * gia_lua_kg
-
-    ty_le_tb = (info["ty_le_mat_min"] + info["ty_le_mat_max"]) / 2
-    thiet_hai_1ha = tong_gia_tri_1ha * ty_le_tb
-    thiet_hai_ruong = thiet_hai_1ha * dien_tich_ha
-    chi_phi_thuoc_ruong = don_gia_thuoc_ha * dien_tich_ha
-    tien_cuu_duoc = thiet_hai_ruong - chi_phi_thuoc_ruong
-
-    lit_nuoc_can = round(450 * dien_tich_ha)
-    so_binh_25l = max(1, round(lit_nuoc_can / 25))
-
-    diem_nguy_co = 1
-    if thoi_tiet in info["thoi_tiet_thuan_loi"]:
-        diem_nguy_co += 2
-    if giai_doan_lua in ["Đẻ nhánh", "Làm đòng"]:
-        diem_nguy_co += 1
-
-    if diem_nguy_co >= 3:
-        muc_do = "RẤT CAO (Nguy cơ bùng phát dịch)"
-        mau_nguy_co = "#d32f2f"
-        nen_nguy_co = "#ffebee"
-        du_bao_3_5_ngay = (
-            f"**Ngày 1–2:** Vết bệnh mới xuất hiện dày đặc trên các khóm lúa lân cận do {thoi_tiet.lower()} "
-            f"kết hợp giai đoạn **{giai_doan_lua.lower()}** lá non nhiều.\n"
-            f"- **Ngày 3–5:** Nếu không chặn đứng, tỷ lệ nhiễm có thể vượt quá **40–60% diện tích ruộng**, "
-            f"gây cháy chòm hoặc làm giảm mạnh khả năng nuôi đòng/vô gạo."
-        )
-        thoi_diem_phun = "Phun xử lý NGAY TRONG 24–48 GIỜ TỚI (chọn lúc trời tạnh ráo, không mưa trong vòng 4 tiếng sau phun)."
-    elif diem_nguy_co == 2:
-        muc_do = "TRUNG BÌNH (Lây lan cục bộ)"
-        mau_nguy_co = "#ef6c00"
-        nen_nguy_co = "#fff3e0"
-        du_bao_3_5_ngay = (
-            "**Ngày 1–2:** Bệnh chủ yếu phát triển tại các ổ bệnh cũ và các chỗ sạ dày, trũng nước.\n"
-            "- **Ngày 3–5:** Vết bệnh mở rộng kích thước và lan sang các khóm xung quanh trong bán kính 1–2m nếu gặp sương đêm hoặc mưa rào."
-        )
-        thoi_diem_phun = "Nên phun khoanh vùng dập dịch trong **2–3 ngày tới** để tránh phải phun lại nhiều lần."
-    else:
-        muc_do = "THẤP (Tiến triển chậm)"
-        mau_nguy_co = "#2e7d32"
-        nen_nguy_co = "#e8f5e9"
-        du_bao_3_5_ngay = (
-            "**Ngày 1–2:** Thời tiết hiện tại ức chế sự phát tán của mầm bệnh, vết bệnh cũ có xu hướng khô viền.\n"
-            "- **Ngày 3–5:** Mầm bệnh vẫn còn tiềm ẩn trên đồng; chỉ bùng phát trở lại nếu thời tiết chuyển mưa ẩm hoặc bón thừa đạm."
-        )
-        thoi_diem_phun = "Chưa cần phun ồ ạt nếu tỷ lệ bệnh dưới 5% số lá; ưu tiên điều chỉnh nước, phân bón và theo dõi sát."
-
-    return {
-        "tac_nhan": info["tac_nhan"],
-        "ty_le_mat": f"{int(info['ty_le_mat_min'] * 100)}–{int(info['ty_le_mat_max'] * 100)}%",
-        "thiet_hai_1ha": thiet_hai_1ha,
-        "thiet_hai_ruong": thiet_hai_ruong,
-        "chi_phi_thuoc_ruong": chi_phi_thuoc_ruong,
-        "tien_cuu_duoc": tien_cuu_duoc,
-        "lit_nuoc_can": lit_nuoc_can,
-        "so_binh_25l": so_binh_25l,
-        "muc_do": muc_do,
-        "mau_nguy_co": mau_nguy_co,
-        "nen_nguy_co": nen_nguy_co,
-        "co_che_lay_lan": info["co_che_lay_lan"],
-        "du_bao_3_5_ngay": du_bao_3_5_ngay,
-        "thoi_diem_phun": thoi_diem_phun,
-        "dau_hieu_kiem_tra": info["dau_hieu_kiem_tra"],
-        "quan_ly_canh_tac": info["quan_ly_canh_tac"],
-        "ky_thuat_phun": info["ky_thuat_phun"],
-    }
-
-
-st.set_page_config(
-    page_title="Trợ Lý AI Nông Nghiệp - Chẩn Đoán Bệnh Lúa",
-    page_icon="🌾",
-    layout="wide",
-)
-
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #f4f7f5;
-    }
-    .hero-banner {
-        background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 60%, #43a047 100%);
-        padding: 1.8rem 2rem;
-        border-radius: 16px;
-        color: white;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 6px 18px rgba(27, 94, 32, 0.18);
-    }
-    .hero-banner h1 {
-        color: white !important;
-        margin: 0 0 0.4rem 0;
-        font-size: 1.9rem;
-        font-weight: 700;
-    }
-    .hero-banner p {
-        color: #e8f5e9;
-        margin: 0;
-        font-size: 1.02rem;
-    }
-    .card-box {
-        background-color: white;
-        padding: 1.3rem 1.5rem;
-        border-radius: 14px;
-        border: 1px solid #e0e8e3;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-        margin-bottom: 1rem;
-    }
-    .diagnosis-badge {
-        background: #e8f5e9;
-        border-left: 6px solid #2e7d32;
-        padding: 1rem 1.2rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-    }
-    .diagnosis-badge-sick {
-        background: #fff8e1;
-        border-left: 6px solid #f57c00;
-        padding: 1rem 1.2rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-    }
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 0.85rem 1rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.03);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="hero-banner">
-        <h1>🌾 Trợ Lý AI Chẩn Đoán Bệnh Lúa & Tư Vấn Kinh Tế</h1>
-        <p>Nhận diện bệnh qua ảnh lá lúa • Tính toán thiệt hại thực tế • Dự báo lây lan 3–5 ngày • Phác đồ xử lý ngoài đồng</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
 if not MODEL_PATH.is_file():
     st.error(f"Không tìm thấy model: {MODEL_PATH.name}. Hãy đặt model cạnh app.py.")
     st.stop()
 
 try:
     model = load_model()
-    gatekeeper_model = load_gatekeeper_model()
 except (OSError, ValueError) as exc:
-    st.error(f"Không thể nạp model: {exc}")
+    st.error(f"Không thể nạp model {MODEL_PATH.name}: {exc}")
     st.stop()
 
 
@@ -479,240 +76,303 @@ def make_gradcam_heatmap(img_array, model, class_index, last_conv_layer_name="Co
     return heatmap.numpy()
 
 
-left_col, right_col = st.columns([1.05, 1.35], gap="large")
+def estimate_severity(rgb_image):
+    """Ước lượng % diện tích lá bị bệnh bằng ngưỡng màu HSV (heuristic)."""
+    rgb = np.asarray(rgb_image).copy()
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    bgr = cv2.GaussianBlur(bgr, (5, 5), 0)
+    h, s, v = cv2.split(cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV))
 
-with left_col:
-    st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("1. Thông tin đồng ruộng")
+    green = (h >= 35) & (h <= 90) & (s >= 40) & (v >= 40)
+    lesion = ((h < 35) | (h > 165)) & (s >= 40) & (v >= 30)
 
-    c_dt1, c_dt2 = st.columns([1.1, 1])
-    with c_dt1:
-        don_vi_dt = st.selectbox("Đơn vị đo", ["Hecta (ha)", "Công tầm lớn (1.300m²)"])
-    with c_dt2:
-        so_luong_dt = st.number_input("Diện tích ruộng", min_value=0.1, value=1.0, step=0.5)
+    kernel = np.ones((3, 3), np.uint8)
+    lesion = cv2.morphologyEx(lesion.astype(np.uint8), cv2.MORPH_OPEN, kernel).astype(bool)
+    green = cv2.morphologyEx(green.astype(np.uint8), cv2.MORPH_OPEN, kernel).astype(bool)
 
-    dien_tich_ha = so_luong_dt if don_vi_dt == "Hecta (ha)" else round(so_luong_dt * 0.13, 2)
-    if don_vi_dt != "Hecta (ha)":
-        st.caption(f"Quy đổi tương đương: **{dien_tich_ha} ha**")
+    leaf_pixels = int(green.sum() + lesion.sum())
+    if leaf_pixels < 0.05 * rgb.shape[0] * rgb.shape[1]:
+        return None  # không tìm thấy đủ vùng lá
 
-    c_gia1, c_gia2 = st.columns([1.4, 1])
-    with c_gia1:
-        giong_lua = st.selectbox("Giống lúa (tự lấy giá)", list(RICE_MARKET_PRICES.keys()))
-    with c_gia2:
-        gia_lua_hien_tai = st.number_input(
-            "Giá lúa (đ/kg)",
-            min_value=4000,
-            max_value=20000,
-            value=RICE_MARKET_PRICES[giong_lua],
-            step=100,
-        )
-
-    c_dk1, c_dk2 = st.columns(2)
-    with c_dk1:
-        thoi_tiet = st.selectbox(
-            "Thời tiết hiện tại",
-            [
-                "Mưa nhiều / Ẩm độ cao",
-                "Nắng nóng xen kẽ mưa giông",
-                "Trời âm u / Sương mù nhiều",
-                "Khô hạn / Thiếu dinh dưỡng",
-            ],
-        )
-    with c_dk2:
-        giai_doan = st.selectbox(
-            "Giai đoạn lúa",
-            ["Mạ", "Đẻ nhánh", "Làm đòng", "Trỗ – Chín"],
-            index=2,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("2. Tải ảnh lá lúa cần kiểm tra")
-    uploaded_file = st.file_uploader(
-        "Chỉ tải lên ảnh chụp lá lúa (JPG, PNG)",
-        type=["jpg", "jpeg", "png"],
-        max_upload_size=10,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with right_col:
-    if uploaded_file is None:
-        st.markdown(
-            """
-            <div class="card-box" style="text-align: center; padding: 3rem 1.5rem;">
-                <h3 style="color: #2e7d32;">👈 Sẵn sàng phân tích</h3>
-                <p style="color: #555;">Hãy nhập diện tích ruộng và tải ảnh lá lúa ở cột bên trái để AI chẩn đoán bệnh, tính toán chi phí và lập phác đồ xử lý.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    percent = 100.0 * int(lesion.sum()) / leaf_pixels
+    if percent < 5:
+        level = "Rất nhẹ"
+    elif percent < 20:
+        level = "Nhẹ"
+    elif percent < 40:
+        level = "Trung bình"
     else:
-        try:
-            with Image.open(uploaded_file) as uploaded_image:
-                image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
-        except (
-            UnidentifiedImageError,
-            OSError,
-            ValueError,
-            Image.DecompressionBombError,
-        ) as exc:
-            st.error(f"Không thể đọc ảnh đã tải lên: {exc}")
-            st.stop()
+        level = "Nặng"
 
-        # Kiểm tra nghiêm ngặt: chỉ cho phép ảnh LÁ LÚA đi tiếp
-        la_lua_hop_le, ly_do_tu_choi = kiem_tra_la_lua_nghiem_ngat(image, gatekeeper_model)
+    overlay = rgb.copy()
+    red = np.array([255, 0, 0], dtype=np.float32)
+    overlay[lesion] = (0.5 * overlay[lesion] + 0.5 * red).astype(np.uint8)
+    return percent, level, overlay
 
-        if not la_lua_hop_le:
-            st.error(f"🚫 **{ly_do_tu_choi}**")
-            st.image(image, caption="Ảnh bị từ chối nhận dạng", width=340)
-            st.info(
-                "📌 **Hệ thống chỉ hỗ trợ nhận dạng trên LÁ LÚA.**\n"
-                "Vui lòng tải lên ảnh chụp cận cảnh 1–2 phiến lá lúa rõ nét (không chụp chai thuốc, đồ vật hay lá cây khác)."
-            )
-            st.stop()
 
-        resized_image = image.resize((IMG_SIZE, IMG_SIZE))
-        img_array = np.expand_dims(
-            np.asarray(resized_image, dtype=np.float32), axis=0
-        ) / 255.0
-        predictions = model.predict(img_array, verbose=0)[0]
+uploaded_file = st.file_uploader(
+    "Chọn ảnh lá lúa (JPG, JPEG hoặc PNG)",
+    type=["jpg", "jpeg", "png"],
+    max_upload_size=10,
+)
 
-        if predictions.shape != (len(CLASS_NAMES),) or not np.isfinite(predictions).all():
-            st.error("Model trả về kết quả không hợp lệ. Hãy kiểm tra lại file model.")
-            st.stop()
+if uploaded_file is not None:
+    try:
+        with Image.open(uploaded_file) as uploaded_image:
+            image = ImageOps.exif_transpose(uploaded_image).convert("RGB")
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        Image.DecompressionBombError,
+    ) as exc:
+        st.error(f"Không thể đọc ảnh đã tải lên: {exc}")
+        st.stop()
 
-        top3_indices = np.argsort(predictions)[::-1][:3]
-        top1_index = int(top3_indices[0])
-        top1_class = CLASS_NAMES[top1_index]
-        top1_confidence = float(predictions[top1_index])
+    st.image(
+        image,
+        caption="Ảnh đã tải lên",
+        width="stretch",
+        alt="Ảnh lá lúa do người dùng tải lên",
+    )
 
-        badge_class = "diagnosis-badge" if top1_class == "Healthy Rice Leaf" else "diagnosis-badge-sick"
-        st.markdown(
-            f"""
-            <div class="{badge_class}">
-                <div style="font-size: 0.9rem; color: #555; font-weight: 600;">KẾT QUẢ NHẬN DIỆN CAO NHẤT (TOP 1)</div>
-                <div style="font-size: 1.55rem; font-weight: 700; color: #1b5e20; margin: 0.2rem 0;">
-                    {DISPLAY_NAMES[top1_class]}
-                </div>
-                <div style="font-size: 0.95rem; color: #333;">Độ tin cậy mô hình: <b>{top1_confidence:.1%}</b></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+    resized_image = image.resize((IMG_SIZE, IMG_SIZE))
+    img_array = np.expand_dims(
+        np.asarray(resized_image, dtype=np.float32), axis=0
+    ) / 255.0
+    predictions = model.predict(img_array, verbose=0)[0]
+
+    if predictions.shape != (len(CLASS_NAMES),) or not np.isfinite(predictions).all():
+        st.error("Model trả về kết quả không hợp lệ. Hãy kiểm tra lại file model.")
+        st.stop()
+
+    top3_idx = np.argsort(predictions)[::-1][:3]
+    predicted_index = int(top3_idx[0])
+    predicted_class = CLASS_NAMES[predicted_index]
+    confidence = float(predictions[predicted_index])
+    st.session_state["last_diagnosis"] = {
+        "disease": DISPLAY_NAMES[predicted_class],
+        "confidence": confidence,
+        "top3": [
+            (DISPLAY_NAMES[CLASS_NAMES[i]], float(predictions[i])) for i in top3_idx
+        ],
+    }
+
+    st.info(
+        f"Dự đoán tham khảo: **{DISPLAY_NAMES[predicted_class]}**",
+        title="Kết quả AI",
+    )
+    st.metric("Điểm dự đoán (chưa hiệu chuẩn)", f"{confidence:.1%}")
+
+    st.subheader("Top 3 dự đoán")
+    for rank, idx in enumerate(top3_idx, start=1):
+        prob = float(predictions[idx])
+        st.write(f"{rank}. **{DISPLAY_NAMES[CLASS_NAMES[idx]]}**: {prob:.1%}")
+        st.progress(min(max(prob, 0.0), 1.0))
+
+    if confidence < 0.6:
+        st.warning(
+            "Mô hình chưa chắc chắn (dưới 60%). Hãy chụp lại ảnh rõ nét hơn, "
+            "đủ sáng, lấy cận một lá và so sánh với các dự đoán còn lại."
         )
 
-        st.markdown('<div class="card-box">', unsafe_allow_html=True)
-        st.markdown("**📊 Top 3 chẩn đoán có xác suất cao nhất từ AI:**")
-        for rank, idx in enumerate(top3_indices, start=1):
-            cls_name = CLASS_NAMES[int(idx)]
-            prob = float(predictions[int(idx)])
-            c_name, c_bar, c_pct = st.columns([2.2, 3.5, 1])
-            with c_name:
-                label = f"**{rank}. {DISPLAY_NAMES[cls_name]}**" if rank == 1 else f"{rank}. {DISPLAY_NAMES[cls_name]}"
-                st.write(label)
-            with c_bar:
-                st.progress(min(max(prob, 0.0), 1.0))
-            with c_pct:
-                st.write(f"**{prob:.1%}**" if rank == 1 else f"{prob:.1%}")
+    st.warning(
+        "Mô hình luôn chọn một trong 6 nhãn đã học, kể cả khi ảnh không phải lá lúa. "
+        "Kết quả chỉ mang tính tham khảo; hãy kiểm tra thực tế trước khi xử lý cây trồng."
+    )
 
-        top3_options = [CLASS_NAMES[int(i)] for i in top3_indices]
-        selected_class = st.selectbox(
-            "🔍 Chọn chẩn đoán để xem chi phí & phác đồ xử lý (mặc định chọn Top 1):",
-            options=top3_options,
-            format_func=lambda x: f"{DISPLAY_NAMES[x]} ({predictions[CLASS_NAMES.index(x)]:.1%})",
-        )
-        selected_index = CLASS_NAMES.index(selected_class)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        img_c1, img_c2 = st.columns(2)
-        with img_c1:
-            st.image(image, caption="Ảnh lá lúa tải lên", use_container_width=True)
-        with img_c2:
-            try:
-                heatmap = make_gradcam_heatmap(img_array, model, selected_index)
-                if np.isfinite(heatmap).all() and np.any(heatmap):
-                    image_array = np.asarray(resized_image)
-                    image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-                    heatmap = cv2.resize(heatmap, (IMG_SIZE, IMG_SIZE))
-                    heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
-                    overlay = cv2.addWeighted(image_bgr, 0.6, heatmap_colored, 0.4, 0)
-                    overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
-                    st.image(
-                        overlay,
-                        caption=f"Vùng AI tập trung cho: {DISPLAY_NAMES[selected_class]}",
-                        use_container_width=True,
-                    )
-            except Exception:
-                st.caption("Không tạo được ảnh Grad-CAM cho mẫu này.")
-
-        if selected_class == "Healthy Rice Leaf":
-            st.success(
-                "**Lá lúa đang khỏe mạnh**, chưa ghi nhận dấu hiệu sâu bệnh gây hại.\n\n"
-                "- **Khuyến nghị:** Tiếp tục thăm đồng 2–3 ngày/lần vào sáng sớm, giữ mực nước vừa phải và bón phân cân đối N-P-K."
-            )
+    if predicted_class != "Healthy Rice Leaf":
+        st.subheader("Ước lượng mức độ nặng")
+        severity = estimate_severity(resized_image)
+        if severity is None:
+            st.info("Không tìm thấy đủ vùng lá trong ảnh để ước lượng mức độ nặng.")
         else:
-            danh_sach_thuoc = DISEASE_ADVISORY_DB[selected_class]["thuoc_dac_tri"]
-            ten_thuoc_chon = st.selectbox(
-                f"💊 Chọn loại thuốc đặc trị cho {DISPLAY_NAMES[selected_class]} (đơn giá đã gồm công phun/ha):",
-                list(danh_sach_thuoc.keys()),
+            percent, level, severity_overlay = severity
+            col1, col2 = st.columns(2)
+            col1.metric("Diện tích lá có dấu hiệu bệnh", f"{percent:.1f}%")
+            col2.metric("Mức độ", level)
+            st.image(
+                severity_overlay,
+                caption="Vùng màu đỏ là phần được ước lượng là bị bệnh",
+                width="stretch",
             )
-            don_gia_thuoc_ha = danh_sach_thuoc[ten_thuoc_chon]
+            st.caption(SEVERITY_NOTE)
 
-            tu_van = phan_tich_kinh_te_va_lay_lan(
-                predicted_class=selected_class,
-                thoi_tiet=thoi_tiet,
-                giai_doan_lua=giai_doan,
-                dien_tich_ha=dien_tich_ha,
-                gia_lua_kg=gia_lua_hien_tai,
-                don_gia_thuoc_ha=don_gia_thuoc_ha,
+    st.subheader("Vùng ảnh mô hình tập trung (Grad-CAM)")
+    try:
+        heatmap = make_gradcam_heatmap(img_array, model, predicted_index)
+    except (KeyError, ValueError, TypeError, tf.errors.InvalidArgumentError) as exc:
+        st.warning(f"Không thể tạo Grad-CAM: {type(exc).__name__}: {exc}")
+    else:
+        if not np.isfinite(heatmap).all() or not np.any(heatmap):
+            st.warning("Mô hình không tạo được bản đồ nhiệt có ý nghĩa cho ảnh này.")
+        else:
+            image_array = np.asarray(resized_image)
+            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+            heatmap = cv2.resize(heatmap, (IMG_SIZE, IMG_SIZE))
+            heatmap_colored = cv2.applyColorMap(
+                np.uint8(255 * heatmap), cv2.COLORMAP_JET
+            )
+            overlay = cv2.addWeighted(image_bgr, 0.6, heatmap_colored, 0.4, 0)
+            overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
+            st.image(
+                overlay,
+                caption="Vùng mô hình tập trung khi đưa ra dự đoán",
+                width="stretch",
+                alt="Bản đồ nhiệt Grad-CAM phủ trên ảnh lá lúa",
             )
 
-            st.caption(f"🔬 **Tác nhân gây bệnh:** {tu_van['tac_nhan']}")
 
-            tab1, tab2, tab3 = st.tabs([
-                "💰 Thiệt hại & Chi phí",
-                "📈 Dự báo 3–5 ngày",
-                "🩺 Phác đồ xử lý",
-            ])
+# ====================== CHATBOT HỎI ĐÁP BỆNH LÚA (GEMINI) ======================
+CHAT_MODEL = "gemini-3.5-flash"
+MAX_HISTORY = 10
 
-            with tab1:
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Giảm năng suất", tu_van["ty_le_mat"])
-                m2.metric(f"Thiệt hại ({dien_tich_ha:g} ha)", f"{tu_van['thiet_hai_ruong']:,.0f} đ")
-                m3.metric(f"Tiền thuốc ({dien_tich_ha:g} ha)", f"{tu_van['chi_phi_thuoc_ruong']:,.0f} đ")
+BASE_SYSTEM_PROMPT = """Bạn là trợ lý tư vấn bệnh trên cây lúa, trả lời bằng tiếng Việt, dễ hiểu cho nông dân.
+Quy tắc:
+- Chỉ trả lời về lúa: bệnh, sâu hại, dinh dưỡng, canh tác, phòng trừ. Câu hỏi ngoài chủ đề thì lịch sự từ chối và mời hỏi về lúa.
+- Không đưa liều lượng, nồng độ hay lịch phun thuốc cụ thể. Có thể nêu nhóm hoạt chất phổ biến, rồi nhắc đọc nhãn thuốc và hỏi cán bộ khuyến nông hoặc bảo vệ thực vật địa phương.
+- Ưu tiên biện pháp canh tác và phòng bệnh trước khi dùng thuốc.
+- Nếu không chắc chắn, hãy nói rõ là không chắc, không bịa thông tin.
+- Kết quả chẩn đoán bằng AI chỉ là tham khảo, có thể sai; khuyên người dùng kiểm tra thực tế ngoài ruộng khi cần.
+Cách trình bày:
+- Trả lời gọn, tối đa khoảng 400 từ, đi thẳng vào ý chính.
+- Không dùng tiêu đề lớn (#, ##). Chỉ dùng gạch đầu dòng ngắn và chữ in đậm cho ý quan trọng.
+- Luôn kết thúc bằng một câu nhắc hỏi cán bộ khuyến nông địa phương khi cần dùng thuốc.
+- Nếu người dùng muốn chi tiết hơn, họ sẽ hỏi thêm."""
 
-                st.error(
-                    f"Với giá lúa **{gia_lua_hien_tai:,} đ/kg**, nếu không xử lý có thể mất **{tu_van['ty_le_mat']}** năng suất, "
-                    f"tương đương thiệt hại **{tu_van['thiet_hai_ruong']:,.0f} đồng** trên **{dien_tich_ha:g} ha** "
-                    f"(mức trung bình **{tu_van['thiet_hai_1ha']:,.0f} đồng/ha**)."
-                )
-                st.success(
-                    f"Đầu tư **{tu_van['chi_phi_thuoc_ruong']:,.0f} đồng** cho **{ten_thuoc_chon}** "
-                    f"giúp bảo vệ được **{tu_van['tien_cuu_duoc']:,.0f} đồng** tiền lúa thu hoạch."
-                )
 
-            with tab2:
-                st.markdown(
-                    f"""
-                    <div style="background-color: {tu_van['nen_nguy_co']}; border-left: 5px solid {tu_van['mau_nguy_co']}; padding: 0.9rem 1.1rem; border-radius: 8px; margin-bottom: 0.8rem;">
-                        <strong style="color: {tu_van['mau_nguy_co']}; font-size: 1.05rem;">Mức độ nguy cơ: {tu_van['muc_do']}</strong><br>
-                        <span style="color: #222;">⏰ <b>Thời điểm hành động:</b> {tu_van['thoi_diem_phun']}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown(f"**Cơ chế lây lan ngoài ruộng:**\n{tu_van['co_che_lay_lan']}")
-                st.markdown(f"**Diễn biến dự kiến 3–5 ngày tới:**\n- {tu_van['du_bao_3_5_ngay']}")
+def get_api_key():
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        return os.environ.get("GEMINI_API_KEY")
 
-            with tab3:
-                st.info(f"**Bước 1 – Cách kiểm tra nhanh ngoài ruộng:**\n\n{tu_van['dau_hieu_kiem_tra']}")
-                st.warning(f"**Bước 2 – Điều chỉnh nước & phân bón (làm ngay):**\n\n{tu_van['quan_ly_canh_tac']}")
-                st.success(
-                    f"**Bước 3 – Kỹ thuật phun thuốc ({ten_thuoc_chon}):**\n\n"
-                    f"- **Định mức nước phun cho {dien_tich_ha:g} ha:** Cần khoảng **{tu_van['lit_nuoc_can']} lít nước** "
-                    f"(tương đương **{tu_van['so_binh_25l']} bình máy 25 lít**).\n"
-                    f"- **Cách phun hiệu quả:** {tu_van['ky_thuat_phun']}"
-                )
 
-        st.caption(
-            "⚠️ Lưu ý: Kết quả AI mang tính chất hỗ trợ chẩn đoán nhanh; hãy đối chiếu dấu hiệu thực tế ngoài đồng trước khi phun thuốc."
+def build_system_prompt():
+    prompt = BASE_SYSTEM_PROMPT
+    diagnosis = st.session_state.get("last_diagnosis")
+    if diagnosis:
+        top3_text = ", ".join(f"{name} ({prob:.0%})" for name, prob in diagnosis["top3"])
+        prompt += (
+            "\n\nNgữ cảnh: người dùng vừa tải lên một ảnh lá lúa. "
+            f"Mô hình AI dự đoán: {diagnosis['disease']} (độ tin cậy {diagnosis['confidence']:.0%}). "
+            f"Top 3 dự đoán: {top3_text}. Đây chỉ là dự đoán tham khảo."
         )
+    return prompt
+
+
+def to_gemini_contents(messages):
+    messages = list(messages)
+    while messages and messages[0]["role"] != "user":
+        messages.pop(0)  # lịch sử phải bắt đầu bằng tin nhắn người dùng
+    return [
+        types.Content(
+            role="user" if m["role"] == "user" else "model",
+            parts=[types.Part(text=m["content"])],
+        )
+        for m in messages
+    ]
+
+
+def stream_gemini_reply(client, contents):
+    stream = client.models.generate_content_stream(
+        model=CHAT_MODEL,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=build_system_prompt(),
+            max_output_tokens=3000,
+        ),
+    )
+    for chunk in stream:
+        if chunk.text:
+            st.session_state["partial_reply"] += chunk.text
+            yield chunk.text
+
+
+st.divider()
+st.subheader("Hỏi đáp về bệnh lúa")
+
+api_key = get_api_key()
+if not api_key:
+    st.info(
+        "Chưa cấu hình GEMINI_API_KEY nên chatbot đang tắt. "
+        "Hãy thêm key vào .streamlit/secrets.toml rồi chạy lại app."
+    )
+else:
+    ss = st.session_state
+    ss.setdefault("chat_messages", [])
+    ss.setdefault("phase", "idle")  # idle | queued | running
+    ss.setdefault("partial_reply", "")
+    ss.setdefault("q_input", "")
+
+    if ss["phase"] == "running":
+        partial = ss["partial_reply"].strip()
+        stopped_note = "*(đã dừng trả lời)*"
+        ss["chat_messages"].append(
+            {
+                "role": "assistant",
+                "content": f"{partial}\n\n{stopped_note}" if partial else stopped_note,
+            }
+        )
+        ss["phase"] = "idle"
+        ss["partial_reply"] = ""
+
+    def submit_question():
+        text = ss["q_input"].strip()
+        if text and ss["phase"] == "idle":
+            ss["chat_messages"].append({"role": "user", "content": text})
+            ss["phase"] = "queued"
+            ss["q_input"] = ""
+
+    busy = ss["phase"] != "idle"
+
+    chat_area = st.container()
+    with chat_area:
+        for message in ss["chat_messages"]:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    col_input, col_send, col_stop = st.columns([6, 1.3, 1.8], vertical_alignment="bottom")
+    col_input.text_input(
+        "Câu hỏi",
+        key="q_input",
+        placeholder="Hỏi về bệnh lúa, cách phòng trị, chăm sóc...",
+        label_visibility="collapsed",
+        disabled=busy,
+        on_change=submit_question,
+    )
+    col_send.button("Gửi", key="send_btn", on_click=submit_question, disabled=busy, width="stretch")
+    col_stop.button("⏹ Dừng", key="stop_btn", disabled=not busy, type="primary", width="stretch")  # chữ trên nút
+
+    if ss["chat_messages"] and st.button("Xóa cuộc trò chuyện", disabled=busy):
+        ss["chat_messages"] = []
+        st.rerun()
+
+    if ss["phase"] == "queued":
+        ss["phase"] = "running"
+        ss["partial_reply"] = ""
+        history = ss["chat_messages"][-MAX_HISTORY:]
+
+        with chat_area:
+            with st.chat_message("assistant"):
+                try:
+                    client = genai.Client(api_key=api_key)
+                    reply = st.write_stream(
+                        stream_gemini_reply(client, to_gemini_contents(history))
+                    )
+                    if not reply:
+                        reply = "Chatbot không trả lời được câu này, bạn thử diễn đạt lại nhé."
+                        st.warning(reply)
+                except genai_errors.APIError as exc:
+                    if exc.code in (400, 401, 403):
+                        reply = "API key không hợp lệ hoặc chưa được cấp quyền. Hãy kiểm tra lại secrets.toml."
+                    elif exc.code == 429:
+                        reply = "Đang gửi quá nhiều yêu cầu hoặc hết hạn mức miễn phí, hãy thử lại sau ít phút."
+                    else:
+                        reply = f"Không kết nối được chatbot (mã lỗi {exc.code}). Hãy thử lại sau."
+                    st.error(reply)
+
+        ss["chat_messages"].append({"role": "assistant", "content": reply})
+        ss["phase"] = "idle"
+        ss["partial_reply"] = ""
+        st.rerun()

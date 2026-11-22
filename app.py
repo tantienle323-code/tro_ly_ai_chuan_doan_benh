@@ -394,7 +394,12 @@ st.markdown(
         --ink-muted: #5b6f60;
     }
 
-    html, body, .stApp, .stApp * {
+    html, body, .stApp {
+        font-family: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
+    }
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+    .stApp p, .stApp label, .stApp input, .stApp textarea,
+    .stApp [data-testid="stMarkdownContainer"] {
         font-family: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
     }
     .stApp {
@@ -489,6 +494,25 @@ st.markdown(
     section[data-testid="stFileUploaderDropzone"]:hover {
         border-color: var(--rice-main);
         background-color: #e8f5ec;
+    }
+
+    /* Nut bam tai anh: nen xanh dam, chu trang, bo tron */
+    section[data-testid="stFileUploaderDropzone"] button {
+        background-color: var(--rice-main) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 999px !important;
+        padding: 0.55rem 1.5rem !important;
+        box-shadow: 0 4px 14px rgba(27, 122, 67, 0.35);
+        white-space: nowrap;
+    }
+    section[data-testid="stFileUploaderDropzone"] button:hover {
+        background-color: var(--rice-deep) !important;
+        color: #ffffff !important;
+    }
+    section[data-testid="stFileUploaderDropzone"] button p {
+        color: #ffffff !important;
+        font-weight: 600;
     }
 
     /* ===== Ket qua chan doan ===== */

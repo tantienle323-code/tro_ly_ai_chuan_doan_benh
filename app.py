@@ -374,7 +374,7 @@ def phan_tich_kinh_te_va_lay_lan(
 
 
 st.set_page_config(
-    page_title="Trợ Lý AI Nông Nghiệp - Chẩn Đoán Bệnh Lúa",
+    page_title="Nhận diện bệnh qua ảnh lá lúa",
     page_icon="🌾",
     layout="wide",
 )
@@ -441,7 +441,7 @@ st.markdown(
 st.markdown(
     """
     <div class="hero-banner">
-        <h1>🌾 Trợ Lý AI Chẩn Đoán Bệnh Lúa & Tư Vấn Kinh Tế</h1>
+        <h1>🌾 Nhận diện bệnh qua ảnh lá lúa</h1>
         <p>Nhận diện bệnh qua ảnh lá lúa • Tính toán thiệt hại thực tế • Dự báo lây lan 3–5 ngày • Phác đồ xử lý ngoài đồng</p>
     </div>
     """,

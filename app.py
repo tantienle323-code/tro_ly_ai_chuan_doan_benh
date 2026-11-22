@@ -442,7 +442,7 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🌾 Nhận diện bệnh qua ảnh lá lúa</h1>
-        <p>Nhận diện bệnh qua ảnh lá lúa • Tính toán thiệt hại thực tế • Dự báo lây lan 3–5 ngày • Phác đồ xử lý ngoài đồng</p>
+        <p>Tính toán thiệt hại thực tế • Dự báo lây lan 3–5 ngày • Phác đồ xử lý ngoài đồng</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -482,58 +482,56 @@ def make_gradcam_heatmap(img_array, model, class_index, last_conv_layer_name="Co
 left_col, right_col = st.columns([1.05, 1.35], gap="large")
 
 with left_col:
-    st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("1. Thông tin đồng ruộng")
+    with st.container(border=True):
+        st.subheader("1. Thông tin đồng ruộng")
 
-    c_dt1, c_dt2 = st.columns([1.1, 1])
-    with c_dt1:
-        don_vi_dt = st.selectbox("Đơn vị đo", ["Hecta (ha)", "Công tầm lớn (1.300m²)"])
-    with c_dt2:
-        so_luong_dt = st.number_input("Diện tích ruộng", min_value=0.1, value=1.0, step=0.5)
+        c_dt1, c_dt2 = st.columns([1.1, 1])
+        with c_dt1:
+            don_vi_dt = st.selectbox("Đơn vị đo", ["Hecta (ha)", "Công tầm lớn (1.300m²)"])
+        with c_dt2:
+            so_luong_dt = st.number_input("Diện tích ruộng", min_value=0.1, value=1.0, step=0.5)
 
-    dien_tich_ha = so_luong_dt if don_vi_dt == "Hecta (ha)" else round(so_luong_dt * 0.13, 2)
-    if don_vi_dt != "Hecta (ha)":
-        st.caption(f"Quy đổi tương đương: **{dien_tich_ha} ha**")
+        dien_tich_ha = so_luong_dt if don_vi_dt == "Hecta (ha)" else round(so_luong_dt * 0.13, 2)
+        if don_vi_dt != "Hecta (ha)":
+            st.caption(f"Quy đổi tương đương: **{dien_tich_ha} ha**")
 
-    c_gia1, c_gia2 = st.columns([1.4, 1])
-    with c_gia1:
-        giong_lua = st.selectbox("Giống lúa (tự lấy giá)", list(RICE_MARKET_PRICES.keys()))
-    with c_gia2:
-        gia_lua_hien_tai = st.number_input(
-            "Giá lúa (đ/kg)",
-            min_value=4000,
-            max_value=20000,
-            value=RICE_MARKET_PRICES[giong_lua],
-            step=100,
+        c_gia1, c_gia2 = st.columns([1.4, 1])
+        with c_gia1:
+            giong_lua = st.selectbox("Giống lúa (tự lấy giá)", list(RICE_MARKET_PRICES.keys()))
+        with c_gia2:
+            gia_lua_hien_tai = st.number_input(
+                "Giá lúa (đ/kg)",
+                min_value=4000,
+                max_value=20000,
+                value=RICE_MARKET_PRICES[giong_lua],
+                step=100,
+            )
+
+        c_dk1, c_dk2 = st.columns(2)
+        with c_dk1:
+            thoi_tiet = st.selectbox(
+                "Thời tiết hiện tại",
+                [
+                    "Mưa nhiều / Ẩm độ cao",
+                    "Nắng nóng xen kẽ mưa giông",
+                    "Trời âm u / Sương mù nhiều",
+                    "Khô hạn / Thiếu dinh dưỡng",
+                ],
+            )
+        with c_dk2:
+            giai_doan = st.selectbox(
+                "Giai đoạn lúa",
+                ["Mạ", "Đẻ nhánh", "Làm đòng", "Trỗ – Chín"],
+                index=2,
+            )
+
+    with st.container(border=True):
+        st.subheader("2. Tải ảnh lá lúa cần kiểm tra")
+        uploaded_file = st.file_uploader(
+            "Chỉ tải lên ảnh chụp lá lúa (JPG, PNG)",
+            type=["jpg", "jpeg", "png"],
+            max_upload_size=10,
         )
-
-    c_dk1, c_dk2 = st.columns(2)
-    with c_dk1:
-        thoi_tiet = st.selectbox(
-            "Thời tiết hiện tại",
-            [
-                "Mưa nhiều / Ẩm độ cao",
-                "Nắng nóng xen kẽ mưa giông",
-                "Trời âm u / Sương mù nhiều",
-                "Khô hạn / Thiếu dinh dưỡng",
-            ],
-        )
-    with c_dk2:
-        giai_doan = st.selectbox(
-            "Giai đoạn lúa",
-            ["Mạ", "Đẻ nhánh", "Làm đòng", "Trỗ – Chín"],
-            index=2,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="card-box">', unsafe_allow_html=True)
-    st.subheader("2. Tải ảnh lá lúa cần kiểm tra")
-    uploaded_file = st.file_uploader(
-        "Chỉ tải lên ảnh chụp lá lúa (JPG, PNG)",
-        type=["jpg", "jpeg", "png"],
-        max_upload_size=10,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 with right_col:
     if uploaded_file is None:

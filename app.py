@@ -579,8 +579,8 @@ with right_col:
             st.error("Model trả về kết quả không hợp lệ. Hãy kiểm tra lại file model.")
             st.stop()
 
-        top3_indices = np.argsort(predictions)[::-1][:3]
-        top1_index = int(top3_indices[0])
+        top6_indices = np.argsort(predictions)[::-1][:6]
+        top1_index = int(top6_indices[0])
         top1_class = CLASS_NAMES[top1_index]
         top1_confidence = float(predictions[top1_index])
 
@@ -598,28 +598,27 @@ with right_col:
             unsafe_allow_html=True,
         )
 
-        st.markdown('<div class="card-box">', unsafe_allow_html=True)
-        st.markdown("**📊 Top 3 chẩn đoán có xác suất cao nhất từ AI:**")
-        for rank, idx in enumerate(top3_indices, start=1):
-            cls_name = CLASS_NAMES[int(idx)]
-            prob = float(predictions[int(idx)])
-            c_name, c_bar, c_pct = st.columns([2.2, 3.5, 1])
-            with c_name:
-                label = f"**{rank}. {DISPLAY_NAMES[cls_name]}**" if rank == 1 else f"{rank}. {DISPLAY_NAMES[cls_name]}"
-                st.write(label)
-            with c_bar:
-                st.progress(min(max(prob, 0.0), 1.0))
-            with c_pct:
-                st.write(f"**{prob:.1%}**" if rank == 1 else f"{prob:.1%}")
+        with st.container(border=True):
+            st.markdown("**📊 Top 6 chẩn đoán có xác suất cao nhất từ AI:**")
+            for rank, idx in enumerate(top6_indices, start=1):
+                cls_name = CLASS_NAMES[int(idx)]
+                prob = float(predictions[int(idx)])
+                c_name, c_bar, c_pct = st.columns([2.2, 3.5, 1])
+                with c_name:
+                    label = f"**{rank}. {DISPLAY_NAMES[cls_name]}**" if rank == 1 else f"{rank}. {DISPLAY_NAMES[cls_name]}"
+                    st.write(label)
+                with c_bar:
+                    st.progress(min(max(prob, 0.0), 1.0))
+                with c_pct:
+                    st.write(f"**{prob:.1%}**" if rank == 1 else f"{prob:.1%}")
 
-        top3_options = [CLASS_NAMES[int(i)] for i in top3_indices]
-        selected_class = st.selectbox(
-            "🔍 Chọn chẩn đoán để xem chi phí & phác đồ xử lý (mặc định chọn Top 1):",
-            options=top3_options,
-            format_func=lambda x: f"{DISPLAY_NAMES[x]} ({predictions[CLASS_NAMES.index(x)]:.1%})",
-        )
-        selected_index = CLASS_NAMES.index(selected_class)
-        st.markdown("</div>", unsafe_allow_html=True)
+            top6_options = [CLASS_NAMES[int(i)] for i in top6_indices]
+            selected_class = st.selectbox(
+                "🔍 Chọn chẩn đoán để xem chi phí & phác đồ xử lý (mặc định chọn Top 1):",
+                options=top6_options,
+                format_func=lambda x: f"{DISPLAY_NAMES[x]} ({predictions[CLASS_NAMES.index(x)]:.1%})",
+            )
+            selected_index = CLASS_NAMES.index(selected_class)
 
         img_c1, img_c2 = st.columns(2)
         with img_c1:

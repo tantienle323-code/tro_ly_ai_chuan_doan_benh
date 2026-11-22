@@ -382,56 +382,162 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .stApp {
-        background-color: #f4f7f5;
+    @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
+
+    :root {
+        --rice-deep: #14532d;
+        --rice-main: #1b7a43;
+        --rice-bright: #2f9e5f;
+        --rice-soft: #eef6f0;
+        --rice-border: #d9e8dc;
+        --ink: #1c2b21;
+        --ink-muted: #5b6f60;
     }
+
+    html, body, .stApp, .stApp * {
+        font-family: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
+    }
+    .stApp {
+        background: linear-gradient(180deg, #e9f3ec 0%, #f6faf7 220px, #f6faf7 100%);
+        color: var(--ink);
+    }
+    header[data-testid="stHeader"] {
+        background: transparent;
+    }
+    .block-container {
+        max-width: 1320px;
+        padding-top: 2.2rem;
+        padding-bottom: 3rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
+    ::selection {
+        background: #cdeeda;
+    }
+
+    /* ===== Banner ===== */
     .hero-banner {
-        background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 60%, #43a047 100%);
-        padding: 1.8rem 2rem;
-        border-radius: 16px;
+        background: linear-gradient(120deg, #0e3d21 0%, #14532d 38%, #1b7a43 78%, #2f9e5f 100%);
+        padding: 2.3rem 2.5rem;
+        border-radius: 22px;
         color: white;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 6px 18px rgba(27, 94, 32, 0.18);
+        margin-bottom: 1.8rem;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 14px 34px rgba(20, 83, 45, 0.28);
     }
     .hero-banner h1 {
         color: white !important;
-        margin: 0 0 0.4rem 0;
-        font-size: 1.9rem;
-        font-weight: 700;
+        margin: 0 0 0.55rem 0;
+        font-size: 2.15rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
     }
     .hero-banner p {
-        color: #e8f5e9;
+        color: #d9f2e2;
         margin: 0;
-        font-size: 1.02rem;
+        font-size: 1.03rem;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+    }
+
+    /* ===== Khung (container co vien + the card-box) ===== */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #ffffff;
+        border: 1px solid var(--rice-border) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 6px 20px rgba(20, 83, 45, 0.07);
+        padding: 0.4rem 0.6rem;
     }
     .card-box {
         background-color: white;
         padding: 1.3rem 1.5rem;
-        border-radius: 14px;
-        border: 1px solid #e0e8e3;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+        border-radius: 18px;
+        border: 1px solid var(--rice-border);
+        box-shadow: 0 6px 20px rgba(20, 83, 45, 0.07);
         margin-bottom: 1rem;
     }
+
+    /* ===== Tieu de muc va nhan o nhap ===== */
+    .stApp h2 {
+        color: var(--rice-deep);
+        font-size: 1.28rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        padding-bottom: 0.35rem;
+    }
+    .stApp h3 {
+        color: var(--rice-deep);
+        font-weight: 700;
+    }
+    div[data-testid="stWidgetLabel"] p {
+        font-weight: 600;
+        color: #24402e;
+        font-size: 0.92rem;
+    }
+    .stApp small, .stApp [data-testid="stCaptionContainer"] p {
+        color: var(--ink-muted);
+    }
+
+    /* ===== O tai anh ===== */
+    section[data-testid="stFileUploaderDropzone"] {
+        border: 2px dashed #9cc7a8;
+        border-radius: 16px;
+        background-color: #f1f8f3;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    section[data-testid="stFileUploaderDropzone"]:hover {
+        border-color: var(--rice-main);
+        background-color: #e8f5ec;
+    }
+
+    /* ===== Ket qua chan doan ===== */
     .diagnosis-badge {
-        background: #e8f5e9;
-        border-left: 6px solid #2e7d32;
-        padding: 1rem 1.2rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
+        background: linear-gradient(180deg, #eef9f1, #e3f4e9);
+        border-left: 6px solid var(--rice-main);
+        padding: 1.15rem 1.35rem;
+        border-radius: 14px;
+        margin-bottom: 1.1rem;
+        box-shadow: 0 4px 14px rgba(20, 83, 45, 0.08);
     }
     .diagnosis-badge-sick {
-        background: #fff8e1;
-        border-left: 6px solid #f57c00;
-        padding: 1rem 1.2rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
+        background: linear-gradient(180deg, #fffaf0, #fdf0da);
+        border-left: 6px solid #e8890c;
+        padding: 1.15rem 1.35rem;
+        border-radius: 14px;
+        margin-bottom: 1.1rem;
+        box-shadow: 0 4px 14px rgba(232, 137, 12, 0.10);
     }
+
+    /* ===== Thanh xac suat Top 6 ===== */
+    div[data-testid="stProgress"] > div > div > div {
+        background-color: #dcefe2;
+        border-radius: 999px;
+    }
+    div[data-testid="stProgress"] > div > div > div > div {
+        background: linear-gradient(90deg, var(--rice-main), var(--rice-bright));
+        border-radius: 999px;
+    }
+
+    /* ===== Anh va Grad-CAM ===== */
+    div[data-testid="stImage"] img {
+        border-radius: 16px;
+        border: 1px solid var(--rice-border);
+        box-shadow: 0 6px 18px rgba(20, 83, 45, 0.10);
+    }
+
+    /* ===== Hop thong bao (success / info / warning / error) ===== */
+    div[data-testid="stAlert"] {
+        border-radius: 14px;
+        border-width: 1px;
+    }
+
     div[data-testid="stMetric"] {
         background-color: #ffffff;
-        border: 1px solid #e2e8f0;
+        border: 1px solid var(--rice-border);
         padding: 0.85rem 1rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+        border-radius: 14px;
+        box-shadow: 0 3px 10px rgba(20, 83, 45, 0.05);
     }
     </style>
     """,

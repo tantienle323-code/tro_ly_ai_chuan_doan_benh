@@ -483,7 +483,15 @@ left_col, right_col = st.columns([1.05, 1.35], gap="large")
 
 with left_col:
     with st.container(border=True):
-        st.subheader("1. Thông tin đồng ruộng")
+        st.subheader("1. Tải ảnh lá lúa cần kiểm tra")
+        uploaded_file = st.file_uploader(
+            "Chỉ tải lên ảnh chụp lá lúa (JPG, PNG)",
+            type=["jpg", "jpeg", "png"],
+            max_upload_size=10,
+        )
+
+    with st.container(border=True):
+        st.subheader("2. Thông tin đồng ruộng")
 
         c_dt1, c_dt2 = st.columns([1.1, 1])
         with c_dt1:
@@ -525,21 +533,13 @@ with left_col:
                 index=2,
             )
 
-    with st.container(border=True):
-        st.subheader("2. Tải ảnh lá lúa cần kiểm tra")
-        uploaded_file = st.file_uploader(
-            "Chỉ tải lên ảnh chụp lá lúa (JPG, PNG)",
-            type=["jpg", "jpeg", "png"],
-            max_upload_size=10,
-        )
-
 with right_col:
     if uploaded_file is None:
         st.markdown(
             """
             <div class="card-box" style="text-align: center; padding: 3rem 1.5rem;">
                 <h3 style="color: #2e7d32;">👈 Sẵn sàng phân tích</h3>
-                <p style="color: #555;">Hãy nhập diện tích ruộng và tải ảnh lá lúa ở cột bên trái để AI chẩn đoán bệnh, tính toán chi phí và lập phác đồ xử lý.</p>
+                <p style="color: #555;">Hãy tải ảnh lá lúa ở mục 1 cột bên trái để AI nhận diện bệnh và hiển thị Top 6 chẩn đoán.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -620,6 +620,12 @@ with right_col:
             )
             selected_index = CLASS_NAMES.index(selected_class)
 
+        if selected_class == "Healthy Rice Leaf":
+            st.success(
+                "**Lá lúa đang khỏe mạnh**, chưa ghi nhận dấu hiệu sâu bệnh gây hại.\n\n"
+                "- **Khuyến nghị:** Tiếp tục thăm đồng 2–3 ngày/lần vào sáng sớm, giữ mực nước vừa phải và bón phân cân đối N-P-K."
+            )
+
         img_c1, img_c2 = st.columns(2)
         with img_c1:
             st.image(image, caption="Ảnh lá lúa tải lên", use_container_width=True)
@@ -640,9 +646,3 @@ with right_col:
                     )
             except Exception:
                 st.caption("Không tạo được ảnh Grad-CAM cho mẫu này.")
-
-        if selected_class == "Healthy Rice Leaf":
-            st.success(
-                "**Lá lúa đang khỏe mạnh**, chưa ghi nhận dấu hiệu sâu bệnh gây hại.\n\n"
-                "- **Khuyến nghị:** Tiếp tục thăm đồng 2–3 ngày/lần vào sáng sớm, giữ mực nước vừa phải và bón phân cân đối N-P-K."
-            )

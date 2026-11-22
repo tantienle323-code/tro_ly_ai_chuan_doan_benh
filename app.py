@@ -572,7 +572,6 @@ st.markdown(
     """
     <div class="hero-banner">
         <h1>🌾 Nhận diện bệnh qua ảnh lá lúa</h1>
-        <p>Tính toán thiệt hại thực tế • Dự báo lây lan 3–5 ngày • Phác đồ xử lý ngoài đồng</p>
     </div>
     """,
     unsafe_allow_html=True,

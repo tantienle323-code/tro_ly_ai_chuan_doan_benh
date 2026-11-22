@@ -614,7 +614,7 @@ with right_col:
 
             top6_options = [CLASS_NAMES[int(i)] for i in top6_indices]
             selected_class = st.selectbox(
-                "🔍 Chọn chẩn đoán để xem chi phí & phác đồ xử lý (mặc định chọn Top 1):",
+                "🔍 Chọn chẩn đoán để xem vùng AI tập trung (mặc định chọn Top 1):",
                 options=top6_options,
                 format_func=lambda x: f"{DISPLAY_NAMES[x]} ({predictions[CLASS_NAMES.index(x)]:.1%})",
             )
@@ -646,70 +646,3 @@ with right_col:
                 "**Lá lúa đang khỏe mạnh**, chưa ghi nhận dấu hiệu sâu bệnh gây hại.\n\n"
                 "- **Khuyến nghị:** Tiếp tục thăm đồng 2–3 ngày/lần vào sáng sớm, giữ mực nước vừa phải và bón phân cân đối N-P-K."
             )
-        else:
-            danh_sach_thuoc = DISEASE_ADVISORY_DB[selected_class]["thuoc_dac_tri"]
-            ten_thuoc_chon = st.selectbox(
-                f"💊 Chọn loại thuốc đặc trị cho {DISPLAY_NAMES[selected_class]} (đơn giá đã gồm công phun/ha):",
-                list(danh_sach_thuoc.keys()),
-            )
-            don_gia_thuoc_ha = danh_sach_thuoc[ten_thuoc_chon]
-
-            tu_van = phan_tich_kinh_te_va_lay_lan(
-                predicted_class=selected_class,
-                thoi_tiet=thoi_tiet,
-                giai_doan_lua=giai_doan,
-                dien_tich_ha=dien_tich_ha,
-                gia_lua_kg=gia_lua_hien_tai,
-                don_gia_thuoc_ha=don_gia_thuoc_ha,
-            )
-
-            st.caption(f"🔬 **Tác nhân gây bệnh:** {tu_van['tac_nhan']}")
-
-            tab1, tab2, tab3 = st.tabs([
-                "💰 Thiệt hại & Chi phí",
-                "📈 Dự báo 3–5 ngày",
-                "🩺 Phác đồ xử lý",
-            ])
-
-            with tab1:
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Giảm năng suất", tu_van["ty_le_mat"])
-                m2.metric(f"Thiệt hại ({dien_tich_ha:g} ha)", f"{tu_van['thiet_hai_ruong']:,.0f} đ")
-                m3.metric(f"Tiền thuốc ({dien_tich_ha:g} ha)", f"{tu_van['chi_phi_thuoc_ruong']:,.0f} đ")
-
-                st.error(
-                    f"Với giá lúa **{gia_lua_hien_tai:,} đ/kg**, nếu không xử lý có thể mất **{tu_van['ty_le_mat']}** năng suất, "
-                    f"tương đương thiệt hại **{tu_van['thiet_hai_ruong']:,.0f} đồng** trên **{dien_tich_ha:g} ha** "
-                    f"(mức trung bình **{tu_van['thiet_hai_1ha']:,.0f} đồng/ha**)."
-                )
-                st.success(
-                    f"Đầu tư **{tu_van['chi_phi_thuoc_ruong']:,.0f} đồng** cho **{ten_thuoc_chon}** "
-                    f"giúp bảo vệ được **{tu_van['tien_cuu_duoc']:,.0f} đồng** tiền lúa thu hoạch."
-                )
-
-            with tab2:
-                st.markdown(
-                    f"""
-                    <div style="background-color: {tu_van['nen_nguy_co']}; border-left: 5px solid {tu_van['mau_nguy_co']}; padding: 0.9rem 1.1rem; border-radius: 8px; margin-bottom: 0.8rem;">
-                        <strong style="color: {tu_van['mau_nguy_co']}; font-size: 1.05rem;">Mức độ nguy cơ: {tu_van['muc_do']}</strong><br>
-                        <span style="color: #222;">⏰ <b>Thời điểm hành động:</b> {tu_van['thoi_diem_phun']}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.markdown(f"**Cơ chế lây lan ngoài ruộng:**\n{tu_van['co_che_lay_lan']}")
-                st.markdown(f"**Diễn biến dự kiến 3–5 ngày tới:**\n- {tu_van['du_bao_3_5_ngay']}")
-
-            with tab3:
-                st.info(f"**Bước 1 – Cách kiểm tra nhanh ngoài ruộng:**\n\n{tu_van['dau_hieu_kiem_tra']}")
-                st.warning(f"**Bước 2 – Điều chỉnh nước & phân bón (làm ngay):**\n\n{tu_van['quan_ly_canh_tac']}")
-                st.success(
-                    f"**Bước 3 – Kỹ thuật phun thuốc ({ten_thuoc_chon}):**\n\n"
-                    f"- **Định mức nước phun cho {dien_tich_ha:g} ha:** Cần khoảng **{tu_van['lit_nuoc_can']} lít nước** "
-                    f"(tương đương **{tu_van['so_binh_25l']} bình máy 25 lít**).\n"
-                    f"- **Cách phun hiệu quả:** {tu_van['ky_thuat_phun']}"
-                )
-
-        st.caption(
-            "⚠️ Lưu ý: Kết quả AI mang tính chất hỗ trợ chẩn đoán nhanh; hãy đối chiếu dấu hiệu thực tế ngoài đồng trước khi phun thuốc."
-        )
